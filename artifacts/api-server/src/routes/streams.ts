@@ -112,15 +112,80 @@ function parseM3u(content: string) {
     if (line.startsWith("#EXTINF")) {
       pending = parseExtinfLine(line);
     } else if (pending && !line.startsWith("#")) {
-      // Keep all URLs except ones that are clearly not HLS/DASH players
-      if (!isKnownNonPlayableUrl(line)) {
-        channels.push({ ...pending, url: line });
-      }
+      channels.push({ ...pending, url: line });
       pending = null;
     }
   }
 
   return channels;
+}
+
+type ChannelCustomization = {
+  matchName: string;
+  name?: string;
+  logo?: string;
+  url?: string;
+  group?: string;
+  addIfMissing: boolean;
+};
+
+const CHANNEL_CUSTOMIZATIONS: ChannelCustomization[] = [
+  {
+    matchName: "POGO",
+    name: "POGO",
+    logo: "https://static.wikia.nocookie.net/robotwars/images/1/1f/PogoTV.png/revision/latest?cb=20210927185053",
+    url: "http://66.102.126.10:8000/play/a00d/index.m3u8",
+    addIfMissing: true,
+  },
+  {
+    matchName: "CARTOON NETWORK",
+    name: "Cartoon Network Pakistan",
+    logo: "https://yt3.googleusercontent.com/uG9EngVHBNOX4OfWFr17sojyqZo_BHy2tW0_zeXxJHkDrHtyoax2yljfog_55-b0LEPWa_ELPQ=s160-c-k-c0x00ffffff-no-rj",
+    url: "https://s3.ideationtec.live/Cartoon_Network/Cartoon_Network.m3u8",
+    addIfMissing: true,
+  },
+  {
+    matchName: "MINIMAX",
+    name: "Minimax",
+    logo: "https://upload.wikimedia.org/wikipedia/en/e/e9/Minimax_%282021%29.webp",
+    url: "https://vodzong.mjunoon.tv:8087/streamtest/157-1M/chunks.m3u8",
+    addIfMissing: true,
+  },
+  {
+    matchName: "POGO 2",
+    name: "POGO 2",
+    logo: "https://yt3.googleusercontent.com/ytc/AIdro_mHnOf4LS2T4yeC5ru2K_NoAAMjXK6hW3bFKDCfvb1OzsM=s900-c-k-c0x00ffffff-no-rj",
+    url: "http://66.102.126.10:8000/play/a00d/index.m3u8",
+    addIfMissing: true,
+  },
+];
+
+function applyChannelCustomizations(
+  channels: { name: string; logo: string | null; group: string | null; url: string }[]
+) {
+  const result = [...channels];
+  for (const customization of CHANNEL_CUSTOMIZATIONS) {
+    const idx = result.findIndex((c) =>
+      c.name.toLowerCase().includes(customization.matchName.toLowerCase())
+    );
+    if (idx >= 0) {
+      result[idx] = {
+        ...result[idx],
+        ...(customization.name ? { name: customization.name } : {}),
+        ...(customization.logo ? { logo: customization.logo } : {}),
+        ...(customization.url ? { url: customization.url } : {}),
+        ...(customization.group ? { group: customization.group } : {}),
+      };
+    } else if (customization.addIfMissing && customization.name && customization.url) {
+      result.push({
+        name: customization.name,
+        logo: customization.logo || null,
+        group: customization.group || null,
+        url: customization.url,
+      });
+    }
+  }
+  return result;
 }
 
 const UPSTREAM_HEADERS = {
@@ -249,7 +314,10 @@ router.get("/channels", async (req: Request, res: Response): Promise<void> => {
       throw new Error(`Upstream returned ${upstream.status}`);
     }
     const text = await upstream.text();
-    const channels = parseM3u(text);
+    const rawChannels = parseM3u(text);
+    const channels = applyChannelCustomizations(rawChannels).filter(
+      (c) => !isKnownNonPlayableUrl(c.url)
+    );
     res.json(GetChannelsResponse.parse(channels));
   } catch (err) {
     logger.error({ err, playlist }, "Failed to parse channels");
