@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Anime Cartoon"
+version = "1.0.0"
+id = "artifacts/anime-cartoon"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23138
+
+[services.development]
+run = "pnpm --filter @workspace/anime-cartoon run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/anime-cartoon", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/anime-cartoon/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23138"
+BASE_PATH = "/"

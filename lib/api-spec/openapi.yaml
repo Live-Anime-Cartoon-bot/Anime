@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: streams
+    description: Live TV stream proxy and playlist operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,112 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /m3u:
+    get:
+      operationId: getM3u
+      tags: [streams]
+      summary: Fetch an M3U playlist through the proxy
+      description: Fetches an external M3U playlist and returns it with CORS headers.
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: URL of the M3U playlist to fetch
+          schema:
+            type: string
+      responses:
+        "200":
+          description: M3U playlist text
+          content:
+            text/plain:
+              schema:
+                type: string
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Failed to fetch playlist
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /stream:
+    get:
+      operationId: getStream
+      tags: [streams]
+      summary: Proxy an HLS/video stream
+      description: Proxies any stream URL so the browser can play it without CORS restrictions.
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: URL of the stream to proxy
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Stream content (HLS manifest, TS segments, or other media)
+          content:
+            application/vnd.apple.mpegurl:
+              schema:
+                type: string
+            video/mp2t:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Failed to proxy stream
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /channels:
+    get:
+      operationId: getChannels
+      tags: [streams]
+      summary: Parse an M3U playlist into a channel list
+      description: Fetches the playlist and returns parsed channels with name, logo, and stream URL.
+      parameters:
+        - name: playlist
+          in: query
+          required: true
+          description: URL of the M3U playlist to parse
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Parsed channel list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Channel"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Failed to parse playlist
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +141,25 @@ components:
           type: string
       required:
         - status
-
+    Channel:
+      type: object
+      required: [name, url]
+      properties:
+        name:
+          type: string
+          description: Channel name
+        url:
+          type: string
+          description: Stream URL
+        logo:
+          type: ["string", "null"]
+          description: Channel logo URL
+        group:
+          type: ["string", "null"]
+          description: Channel group or category
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
