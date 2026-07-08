@@ -91,9 +91,9 @@ function parseExtinfLine(line: string): {
   };
 }
 
-function isHlsUrl(url: string): boolean {
+function isKnownNonPlayableUrl(url: string): boolean {
   const lower = url.toLowerCase();
-  return lower.includes(".m3u8") || lower.endsWith(".m3u") || lower.includes("/playlist.m3u");
+  return lower.endsWith(".mpd") || lower.endsWith(".ts") || lower.endsWith(".mp4") || lower.endsWith(".mkv");
 }
 
 function parseM3u(content: string) {
@@ -112,7 +112,8 @@ function parseM3u(content: string) {
     if (line.startsWith("#EXTINF")) {
       pending = parseExtinfLine(line);
     } else if (pending && !line.startsWith("#")) {
-      if (isHlsUrl(line)) {
+      // Keep all URLs except ones that are clearly not HLS/DASH players
+      if (!isKnownNonPlayableUrl(line)) {
         channels.push({ ...pending, url: line });
       }
       pending = null;

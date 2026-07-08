@@ -4,7 +4,7 @@ import { VideoPlayer } from '@/components/video-player';
 import { AlertCircle, ShieldCheck, Tv, Search } from 'lucide-react';
 import type { Channel } from '@workspace/api-client-react';
 
-const PLAYLIST_URL = 'https://iptv-org.github.io/iptv/categories/kids.m3u';
+const PLAYLIST_URL = 'https://raw.githubusercontent.com/Live-Anime-Cartoon-bot/Gh/refs/heads/main/M3u';
 
 export default function Home() {
   const { data: channels, isLoading, isError } = useGetChannels({ playlist: PLAYLIST_URL });
@@ -13,13 +13,10 @@ export default function Home() {
 
   useEffect(() => {
     if (channels && channels.length > 0 && !selectedChannel) {
-      // Prefer a familiar, family-friendly channel, then JUGNU TV, then the first one
-      const preferredNames = ['Disney Junior', 'Disney Channel', 'Nick Jr', 'Nickelodeon', 'PBS Kids', 'BabyFirst', 'Cartoon Network'];
-      const preferred = preferredNames
-        .map(name => channels.find(c => c.name.toLowerCase().includes(name.toLowerCase())))
-        .find(Boolean);
-      const jugnuChannel = channels.find(c => c.name.toUpperCase().includes('JUGNU TV'));
-      setSelectedChannel(preferred || jugnuChannel || channels[0]);
+      // Pick the first channel from the list. The original JUGNU TV stream is
+      // intermittently offline at the source, so we start with the first available
+      // channel (24/7 Little Singham) instead of defaulting to JUGNU TV.
+      setSelectedChannel(channels[0]);
     }
   }, [channels, selectedChannel]);
 
