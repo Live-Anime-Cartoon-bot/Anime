@@ -33,7 +33,9 @@ export const GetM3uResponse = zod.string()
  * @summary Proxy an HLS/video stream
  */
 export const GetStreamQueryParams = zod.object({
-  "url": zod.coerce.string().describe('URL of the stream to proxy')
+  "url": zod.coerce.string().describe('URL of the stream to proxy'),
+  "cookie": zod.coerce.string().optional().describe('Cookie to forward when proxying'),
+  "ua": zod.coerce.string().optional().describe('User-Agent to use when proxying'),
 })
 
 export const GetStreamResponse = zod.unknown()
@@ -51,8 +53,9 @@ export const GetChannelsResponseItem = zod.object({
   "name": zod.string().describe('Channel name'),
   "url": zod.string().describe('Stream URL'),
   "logo": zod.string().nullish().describe('Channel logo URL'),
-  "group": zod.string().nullish().describe('Channel group or category')
+  "group": zod.string().nullish().describe('Channel group or category'),
+  "cookie": zod.string().nullish().describe('Cookie to forward when proxying'),
+  "licenseUrl": zod.string().nullish().describe('ClearKey DRM license URL'),
+  "userAgent": zod.string().nullish().describe('User-Agent to use when proxying'),
 })
 export const GetChannelsResponse = zod.array(GetChannelsResponseItem)
-
-

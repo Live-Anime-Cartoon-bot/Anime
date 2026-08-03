@@ -4,7 +4,7 @@ import { VideoPlayer } from '@/components/video-player';
 import { AlertCircle, ShieldCheck, Tv, Search } from 'lucide-react';
 import type { Channel } from '@workspace/api-client-react';
 
-const PLAYLIST_URL = 'https://raw.githubusercontent.com/Live-Anime-Cartoon-bot/Gh/refs/heads/main/M3u';
+const PLAYLIST_URL = 'https://raw.githubusercontent.com/Sflex0719/m3u/refs/heads/main/Zio.m3u';
 
 export default function Home() {
   const { data: channels, isLoading, isError } = useGetChannels({ playlist: PLAYLIST_URL });
@@ -75,7 +75,13 @@ export default function Home() {
       <div className="px-4 md:px-6 mb-10 max-w-4xl mx-auto">
         {selectedChannel && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <VideoPlayer url={selectedChannel.url} poster={selectedChannel.logo} />
+            <VideoPlayer
+              url={selectedChannel.url}
+              poster={selectedChannel.logo}
+              cookie={selectedChannel.cookie}
+              licenseUrl={selectedChannel.licenseUrl}
+              userAgent={selectedChannel.userAgent}
+            />
 
             <div className="mt-6 px-1 space-y-2">
               <h2 className="text-3xl font-black text-white line-clamp-2 tracking-tight leading-none">

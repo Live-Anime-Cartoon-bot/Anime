@@ -157,6 +157,15 @@ components:
         group:
           type: ["string", "null"]
           description: Channel group or category
+        cookie:
+          type: ["string", "null"]
+          description: Cookie header to forward when proxying the stream
+        licenseUrl:
+          type: ["string", "null"]
+          description: ClearKey DRM license URL
+        userAgent:
+          type: ["string", "null"]
+          description: User-Agent to use when proxying the stream
     Error:
       type: object
       required: [error]

@@ -1,0 +1,3 @@
+RewriteEngine On
+RewriteRule ^stream$ stream.php [QSA,L]
+RewriteRule ^channels$ channels.php [QSA,L]

@@ -24,6 +24,21 @@ export interface Channel {
      * @nullable
      */
   group?: string | null;
+  /**
+     * Cookie to forward when proxying
+     * @nullable
+     */
+  cookie?: string | null;
+  /**
+     * ClearKey DRM license URL
+     * @nullable
+     */
+  licenseUrl?: string | null;
+  /**
+     * User-Agent to use when proxying
+     * @nullable
+     */
+  userAgent?: string | null;
 }
 
 export interface Error {

@@ -169,6 +169,10 @@ importers:
         version: 5.9.3
 
   artifacts/anime-cartoon:
+    dependencies:
+      shaka-player:
+        specifier: ^5.2.4
+        version: 5.2.4
     devDependencies:
       '@hookform/resolvers':
         specifier: ^3.10.0
@@ -2829,6 +2833,10 @@ packages:
   setprototypeof@1.2.0:
     resolution: {integrity: sha512-E5LDX7Wrp85Kil5bhZv46j8jOeboKq5JMmYM3gVGdGH8xFpPWXUMsNrlODCrkoxMEeNi/XZIwuRvY4XNwYMJpw==}
 
+  shaka-player@5.2.4:
+    resolution: {integrity: sha512-vf81av2EIcb03jRpeeZBhrPT3PMyggXnZA9k4sxGBxpr/H6v0iEL6b51T2Kwz5YNrQG/yDYoadgBW+oW40LeoA==}
+    engines: {node: '>=18'}
+
   shebang-command@2.0.0:
     resolution: {integrity: sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA==}
     engines: {node: '>=8'}
@@ -5342,6 +5350,8 @@ snapshots:
       - supports-color
 
   setprototypeof@1.2.0: {}
+
+  shaka-player@5.2.4: {}
 
   shebang-command@2.0.0:
     dependencies:

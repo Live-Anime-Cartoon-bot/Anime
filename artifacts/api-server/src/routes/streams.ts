@@ -41,7 +41,6 @@ function rewriteM3uManifest(baseUrl: string, content: string): string {
       const trimmed = line.trim();
       if (!trimmed) return line;
 
-      // Rewrite URI="..." attributes inside #EXT lines (keys, maps, etc.)
       if (trimmed.startsWith("#")) {
         return line.replace(/URI="([^"]+)"/g, (match, uri: string) => {
           try {
@@ -53,7 +52,6 @@ function rewriteM3uManifest(baseUrl: string, content: string): string {
         });
       }
 
-      // Any non-comment, non-empty line is treated as a media/playlist URL
       try {
         const absolute = new URL(trimmed, baseUrl).toString();
         return proxyUrl(absolute);
@@ -72,7 +70,6 @@ function parseExtinfLine(line: string): {
   const logoMatch = line.match(/tvg-logo="([^"]*)"/);
   const groupMatch = line.match(/group-title="([^"]*)"/);
 
-  // The channel title is the text after the last comma that is not inside quotes.
   let titleStart = -1;
   let inQuotes = false;
   for (let i = 0; i < line.length; i++) {
@@ -93,17 +90,25 @@ function parseExtinfLine(line: string): {
 
 function isKnownNonPlayableUrl(url: string): boolean {
   const lower = url.toLowerCase();
-  return lower.endsWith(".mpd") || lower.endsWith(".ts") || lower.endsWith(".mp4") || lower.endsWith(".mkv");
+  return lower.endsWith(".mp4") || lower.endsWith(".mkv");
 }
 
 function parseM3u(content: string) {
-  const channels = [];
-  const lines = content.split(/\r?\n/);
-  let pending: {
+  const channels: {
     name: string;
     logo: string | null;
     group: string | null;
-  } | null = null;
+    url: string;
+    cookie: string | null;
+    licenseUrl: string | null;
+    userAgent: string | null;
+  }[] = [];
+
+  const lines = content.split(/\r?\n/);
+  let pending: { name: string; logo: string | null; group: string | null } | null = null;
+  let pendingCookie: string | null = null;
+  let pendingLicenseUrl: string | null = null;
+  let pendingUserAgent: string | null = null;
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -111,9 +116,30 @@ function parseM3u(content: string) {
 
     if (line.startsWith("#EXTINF")) {
       pending = parseExtinfLine(line);
+      pendingCookie = null;
+      pendingLicenseUrl = null;
+      pendingUserAgent = null;
+    } else if (line.startsWith("#EXTHTTP:")) {
+      try {
+        const json = JSON.parse(line.slice(9));
+        if (json.cookie) pendingCookie = json.cookie;
+      } catch { /* ignore */ }
+    } else if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key=")) {
+      pendingLicenseUrl = line.split("=").slice(1).join("=");
+    } else if (line.startsWith("#EXTVLCOPT:http-user-agent=")) {
+      pendingUserAgent = line.split("=").slice(1).join("=");
     } else if (pending && !line.startsWith("#")) {
-      channels.push({ ...pending, url: line });
+      channels.push({
+        ...pending,
+        url: line,
+        cookie: pendingCookie,
+        licenseUrl: pendingLicenseUrl,
+        userAgent: pendingUserAgent,
+      });
       pending = null;
+      pendingCookie = null;
+      pendingLicenseUrl = null;
+      pendingUserAgent = null;
     }
   }
 
@@ -134,14 +160,42 @@ const CHANNEL_CUSTOMIZATIONS: ChannelCustomization[] = [
     matchName: "POGO",
     name: "POGO",
     logo: "https://static.wikia.nocookie.net/robotwars/images/1/1f/PogoTV.png/revision/latest?cb=20210927185053",
-    url: "http://66.102.126.10:8000/play/a00d/index.m3u8",
+    url: "https://line.sweetv.xyz/play/live.php?mac=00:1A:79:00:03:B2&stream=156128&extension=m3u8&play_token=9sBGXoBcMI",
     addIfMissing: true,
   },
   {
     matchName: "CARTOON NETWORK",
-    name: "Cartoon Network Pakistan",
+    name: "Cartoon Network - Tataplay",
     logo: "https://yt3.googleusercontent.com/uG9EngVHBNOX4OfWFr17sojyqZo_BHy2tW0_zeXxJHkDrHtyoax2yljfog_55-b0LEPWa_ELPQ=s160-c-k-c0x00ffffff-no-rj",
-    url: "https://s3.ideationtec.live/Cartoon_Network/Cartoon_Network.m3u8",
+    url: "http://66.102.126.10:8000/play/a011/index.m3u8",
+    addIfMissing: true,
+  },
+  {
+    matchName: "DISNEY JUNIOR",
+    name: "Disney Junior - Tataplay",
+    logo: "https://upload.wikimedia.org/wikipedia/commons/3/36/2019_Disney_Junior_logo.svg",
+    url: "http://66.102.126.10:8000/play/a004/index.m3u8",
+    addIfMissing: true,
+  },
+  {
+    matchName: "NICK",
+    name: "Nick - Tataplay",
+    logo: "https://upload.wikimedia.org/wikipedia/commons/8/80/Nickelodeon_2009_logo.svg",
+    url: "http://66.102.126.10:8000/play/a00w/index.m3u8",
+    addIfMissing: true,
+  },
+  {
+    matchName: "NICK JR",
+    name: "Nick Jr. - Tataplay",
+    logo: "https://upload.wikimedia.org/wikipedia/commons/9/98/Nick_Jr._logo_2009.svg",
+    url: "http://66.102.126.10:8000/play/a00m/index.m3u8",
+    addIfMissing: true,
+  },
+  {
+    matchName: "DISNEY CHANNEL",
+    name: "Disney Channel HD - Tataplay",
+    logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/61/Disney_Channel_logo_2014.svg/1200px-Disney_Channel_logo_2014.svg.png",
+    url: "http://66.102.126.10:8000/play/a013/index.m3u8",
     addIfMissing: true,
   },
   {
@@ -151,17 +205,10 @@ const CHANNEL_CUSTOMIZATIONS: ChannelCustomization[] = [
     url: "https://vodzong.mjunoon.tv:8087/streamtest/157-1M/chunks.m3u8",
     addIfMissing: true,
   },
-  {
-    matchName: "POGO 2",
-    name: "POGO 2",
-    logo: "https://yt3.googleusercontent.com/ytc/AIdro_mHnOf4LS2T4yeC5ru2K_NoAAMjXK6hW3bFKDCfvb1OzsM=s900-c-k-c0x00ffffff-no-rj",
-    url: "http://66.102.126.10:8000/play/a00d/index.m3u8",
-    addIfMissing: true,
-  },
 ];
 
 function applyChannelCustomizations(
-  channels: { name: string; logo: string | null; group: string | null; url: string }[]
+  channels: { name: string; logo: string | null; group: string | null; url: string; cookie: string | null; licenseUrl: string | null; userAgent: string | null }[]
 ) {
   const result = [...channels];
   for (const customization of CHANNEL_CUSTOMIZATIONS) {
@@ -173,7 +220,7 @@ function applyChannelCustomizations(
         ...result[idx],
         ...(customization.name ? { name: customization.name } : {}),
         ...(customization.logo ? { logo: customization.logo } : {}),
-        ...(customization.url ? { url: customization.url } : {}),
+        ...(customization.url ? { url: customization.url, cookie: null, licenseUrl: null, userAgent: null } : {}),
         ...(customization.group ? { group: customization.group } : {}),
       };
     } else if (customization.addIfMissing && customization.name && customization.url) {
@@ -182,6 +229,9 @@ function applyChannelCustomizations(
         logo: customization.logo || null,
         group: customization.group || null,
         url: customization.url,
+        cookie: null,
+        licenseUrl: null,
+        userAgent: null,
       });
     }
   }
@@ -230,18 +280,23 @@ router.get("/stream", async (req: Request, res: Response): Promise<void> => {
   }
 
   const url = parsed.data.url;
+  const cookie = typeof req.query.cookie === 'string' ? req.query.cookie : undefined;
+  const ua = typeof req.query.ua === 'string' ? req.query.ua : undefined;
+
   if (!isValidUrl(url)) {
     res.status(400).json({ error: "Invalid URL" });
     return;
   }
 
   try {
-    const upstream = await fetch(url, {
-      headers: {
-        ...UPSTREAM_HEADERS,
-        Referer: new URL(url).origin,
-      },
-    });
+    const headers: Record<string, string> = {
+      ...UPSTREAM_HEADERS,
+      Referer: new URL(url).origin,
+    };
+    if (cookie) headers["Cookie"] = cookie;
+    if (ua) headers["User-Agent"] = ua;
+
+    const upstream = await fetch(url, { headers });
     if (!upstream.ok) {
       throw new Error(`Upstream returned ${upstream.status}`);
     }
@@ -263,7 +318,6 @@ router.get("/stream", async (req: Request, res: Response): Promise<void> => {
           "last-modified",
         ].includes(lower)
       ) {
-        // Skip content-length for manifests because we rewrite the body
         if (isManifest && lower === "content-length") return;
         res.setHeader(key, value);
       }
@@ -271,7 +325,8 @@ router.get("/stream", async (req: Request, res: Response): Promise<void> => {
 
     if (isManifest) {
       const text = await upstream.text();
-      const rewritten = rewriteM3uManifest(baseUrl, text);
+      // Rewrite manifest — preserve cookie/ua in proxied segment URLs
+      const rewritten = rewriteM3uManifestWithAuth(baseUrl, text, cookie, ua);
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
       res.send(rewritten);
       return;
@@ -282,7 +337,6 @@ router.get("/stream", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Node 20+ supports Readable.fromWeb for native fetch ReadableStream
     Readable.fromWeb(upstream.body as unknown as import("stream/web").ReadableStream)
       .on("error", (err) => {
         logger.error({ err, url }, "Stream pipe error");
@@ -294,6 +348,46 @@ router.get("/stream", async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({ error: "Failed to proxy stream" });
   }
 });
+
+function proxyUrlWithAuth(target: string, cookie?: string | null, ua?: string | null): string {
+  let p = `/api/stream?url=${encodeURIComponent(target)}`;
+  if (cookie) p += `&cookie=${encodeURIComponent(cookie)}`;
+  if (ua) p += `&ua=${encodeURIComponent(ua)}`;
+  return p;
+}
+
+function rewriteM3uManifestWithAuth(
+  baseUrl: string,
+  content: string,
+  cookie?: string | null,
+  ua?: string | null
+): string {
+  return content
+    .split(/\r?\n/)
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+
+      if (trimmed.startsWith("#")) {
+        return line.replace(/URI="([^"]+)"/g, (match, uri: string) => {
+          try {
+            const absolute = new URL(uri, baseUrl).toString();
+            return `URI="${proxyUrlWithAuth(absolute, cookie, ua)}"`;
+          } catch {
+            return match;
+          }
+        });
+      }
+
+      try {
+        const absolute = new URL(trimmed, baseUrl).toString();
+        return proxyUrlWithAuth(absolute, cookie, ua);
+      } catch {
+        return line;
+      }
+    })
+    .join("\n");
+}
 
 router.get("/channels", async (req: Request, res: Response): Promise<void> => {
   const parsed = GetChannelsQueryParams.safeParse(req.query);
