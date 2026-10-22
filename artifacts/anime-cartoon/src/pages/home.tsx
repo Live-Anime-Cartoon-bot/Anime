@@ -1,51 +1,164 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGetChannels } from '@workspace/api-client-react';
 import { VideoPlayer } from '@/components/video-player';
-import { AlertCircle, ShieldCheck, Tv, Search } from 'lucide-react';
+import { ChannelLogo, ChannelRail } from '@/components/home/channel-rail';
+import {
+  AlertCircle,
+  ChevronRight,
+  CirclePlay,
+  House,
+  Radio,
+  Search,
+  Tv,
+} from 'lucide-react';
 import type { Channel } from '@workspace/api-client-react';
 
-const PLAYLIST_URL = 'https://raw.githubusercontent.com/Sflex0719/m3u/refs/heads/main/Zio.m3u';
+const PLAYLIST_URL = 'https://plugxvipplaylist.lovable.app/api/playlist';
+const SECOND_PLAYLIST_URL = 'https://raw.githubusercontent.com/Live-Anime-Cartoon-bot/CompressBot/refs/heads/main/m3u';
 
 export default function Home() {
-  const { data: channels, isLoading, isError } = useGetChannels({ playlist: PLAYLIST_URL });
+  const { data: channels, isLoading, isError } = useGetChannels({
+    playlist: PLAYLIST_URL,
+    playlist2: SECOND_PLAYLIST_URL,
+  });
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState('all');
+  const [activeNav, setActiveNav] = useState('home');
+  const [playerOpen, setPlayerOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (channels && channels.length > 0 && !selectedChannel) {
-      // Pick the first channel from the list. The original JUGNU TV stream is
-      // intermittently offline at the source, so we start with the first available
-      // channel (24/7 Little Singham) instead of defaulting to JUGNU TV.
-      setSelectedChannel(channels[0]);
+    if (channels && channels.length > 0 && (!selectedChannel || !channels.some((channel) => channel.url === selectedChannel.url))) {
+      const defaultChannel =
+        channels.find((channel) => channel.name.toLowerCase() === 'wow kidz') ??
+        channels.find((channel) =>
+          channel.group?.toLowerCase().includes('kids') &&
+          /\.m3u8(?:$|[?#])/i.test(channel.url)
+        ) ??
+        channels.find((channel) => channel.group?.toLowerCase().includes('kids')) ??
+        channels[0];
+      setSelectedChannel(defaultChannel);
     }
   }, [channels, selectedChannel]);
 
+  const channelGroups = useMemo(() => {
+    const groups = new Map<string, Channel[]>();
+    for (const channel of channels ?? []) {
+      const group = channel.group?.trim() || 'More Channels';
+      groups.set(group, [...(groups.get(group) ?? []), channel]);
+    }
+    return [...groups.entries()]
+      .map(([name, items]) => ({ name, items }))
+      .sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name));
+  }, [channels]);
+
+  const categoryTabs = useMemo(() => {
+    const topGroups = channelGroups
+      .filter(({ name }) => !/kids?|junior|cartoon|hindi/i.test(name))
+      .slice(0, 5)
+      .map(({ name }) => ({
+        id: `group:${name}`,
+        label: name.includes('|') ? name.split('|').pop()?.trim() || name : name,
+      }));
+    return [
+      { id: 'all', label: 'All' },
+      { id: 'kids', label: 'Kids' },
+      { id: 'hindi', label: 'Hindi' },
+      ...topGroups,
+    ];
+  }, [channelGroups]);
+
+  const matchingChannels = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return (channels ?? []).filter((channel) => {
+      const matchesQuery = !query ||
+        channel.name.toLowerCase().includes(query) ||
+        (channel.group ?? '').toLowerCase().includes(query);
+      if (!matchesQuery) return false;
+      if (activeCategory === 'kids') {
+        return /kids?|junior|cartoon|children|animation|pogo|nick jr/i.test(`${channel.name} ${channel.group ?? ''}`);
+      }
+      if (activeCategory === 'hindi') {
+        return /hindi/i.test(`${channel.name} ${channel.group ?? ''}`);
+      }
+      if (activeCategory.startsWith('group:')) {
+        return (channel.group?.trim() || 'More Channels') === activeCategory.slice(6);
+      }
+      return true;
+    });
+  }, [activeCategory, channels, searchQuery]);
+
+  const sections = useMemo(() => {
+    const groups = new Map<string, Channel[]>();
+    for (const channel of matchingChannels) {
+      const group = channel.group?.trim() || 'More Channels';
+      groups.set(group, [...(groups.get(group) ?? []), channel]);
+    }
+    const ordered = [...groups.entries()]
+      .map(([name, items]) => ({ name, items }))
+      .sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name));
+    if (activeCategory === 'all' && !searchQuery.trim()) return ordered.slice(0, 8);
+    return ordered.slice(0, 12);
+  }, [activeCategory, matchingChannels, searchQuery]);
+
+  const openChannel = (channel: Channel) => {
+    setSelectedChannel(channel);
+    setPlayerOpen(true);
+    setActiveNav('home');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleBottomNav = (nav: 'home' | 'search' | 'kids') => {
+    setActiveNav(nav);
+    if (nav === 'home') {
+      setActiveCategory('all');
+      setPlayerOpen(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else if (nav === 'search') {
+      setActiveCategory('all');
+      searchRef.current?.focus();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      setActiveCategory('kids');
+      setPlayerOpen(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   if (isLoading) {
     return (
-      <div className="min-h-[100dvh] bg-background flex flex-col items-center justify-center text-white font-sans">
-        <div className="w-20 h-20 relative mb-8">
-           <div className="absolute inset-0 border-[6px] border-primary/20 rounded-full"></div>
-           <div className="absolute inset-0 border-[6px] border-primary rounded-full border-t-transparent animate-spin"></div>
+      <div className="min-h-[100dvh] bg-[#080914] px-4 pb-10 pt-6 font-sans text-white">
+        <div className="mx-auto max-w-5xl animate-pulse">
+          <div className="mb-7 h-12 rounded-2xl bg-white/[0.06]" />
+          <div className="mb-8 h-36 rounded-3xl bg-white/[0.06]" />
+          {[0, 1, 2].map((row) => (
+            <div key={row} className="mb-8">
+              <div className="mb-4 h-6 w-48 rounded bg-white/[0.06]" />
+              <div className="flex gap-3 overflow-hidden">
+                {[0, 1, 2, 3].map((card) => <div key={card} className="h-36 w-32 shrink-0 rounded-2xl bg-white/[0.06]" />)}
+              </div>
+            </div>
+          ))}
         </div>
-        <h1 className="text-3xl font-black tracking-tighter">JUGNU<span className="text-primary">TV</span></h1>
-        <p className="text-primary/70 font-bold uppercase tracking-widest mt-3 text-sm animate-pulse">Tuning in...</p>
       </div>
     );
   }
 
   if (isError || !channels) {
     return (
-      <div className="min-h-[100dvh] bg-background flex flex-col items-center justify-center text-white px-6 text-center font-sans">
-        <div className="w-24 h-24 bg-card border border-white/5 rounded-full flex items-center justify-center mb-8 shadow-xl">
-          <AlertCircle className="w-12 h-12 text-destructive" />
+      <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-[#080914] px-6 text-center font-sans text-white">
+        <div className="mb-7 flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-[#13172a]">
+          <AlertCircle className="h-10 w-10 text-rose-400" />
         </div>
-        <h2 className="text-3xl font-black tracking-tight mb-3">Signal Lost</h2>
-        <p className="text-muted-foreground font-medium mb-10 max-w-xs text-lg leading-relaxed">
-          We couldn't connect to the cartoon network. Please check your connection.
+        <h2 className="mb-3 text-3xl font-black tracking-tight">Signal Lost</h2>
+        <p className="mb-8 max-w-xs text-base leading-relaxed text-slate-400">
+          We couldn’t load the channel list. Check your connection and try again.
         </p>
         <button
           onClick={() => window.location.reload()}
-          className="bg-primary text-primary-foreground font-black text-lg px-10 py-4 rounded-full active:scale-95 transition-transform hover:brightness-110 shadow-[0_0_30px_rgba(214,243,47,0.3)]"
+          className="rounded-full bg-violet-600 px-8 py-3.5 text-base font-extrabold text-white shadow-lg shadow-violet-900/30 transition hover:bg-violet-500 active:scale-95"
+          data-testid="button-retry-channels"
         >
           Retry Connection
         </button>
@@ -53,124 +166,247 @@ export default function Home() {
     );
   }
 
-  const filteredChannels = channels.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const activeChannel = selectedChannel ?? matchingChannels[0] ?? channels[0];
 
   return (
-    <div className="min-h-[100dvh] bg-background text-foreground pb-24 selection:bg-primary/30 font-sans">
-      {/* App Header */}
-      <div className="px-5 pt-6 pb-5 sticky top-0 bg-background/80 backdrop-blur-xl z-50">
-        <div className="flex items-center justify-between">
-           <h1 className="text-2xl font-black tracking-tighter text-white flex items-center gap-1.5">
-              <Tv className="w-6 h-6 text-primary" strokeWidth={2.5} />
-              JUGNU<span className="text-primary">TV</span>
-           </h1>
-           <div className="flex items-center gap-2 bg-primary/10 text-primary px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-primary/20 shadow-[0_0_15px_rgba(214,243,47,0.15)]">
-             <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_rgba(214,243,47,0.8)]" />
-             Live
-           </div>
-        </div>
-      </div>
+    <div className="min-h-[100dvh] bg-[#080914] pb-28 font-sans text-white selection:bg-violet-500/30">
+      <header className="sticky top-0 z-40 border-b border-white/[0.06] bg-[#080914]/95 backdrop-blur-2xl">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 pb-3 pt-4 sm:gap-4 sm:px-6">
+          <button
+            type="button"
+            onClick={() => handleBottomNav('home')}
+            className="flex shrink-0 items-center gap-2.5"
+            aria-label="JUGNU TV home"
+            data-testid="button-brand-home"
+          >
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-400 to-indigo-700 shadow-lg shadow-violet-900/30">
+              <Tv className="h-5 w-5 text-white" strokeWidth={2.5} />
+            </span>
+            <span className="hidden text-xl font-black tracking-tight sm:inline">
+              JUGNU<span className="text-violet-400">TV</span>
+            </span>
+          </button>
 
-      {/* Main Video Section */}
-      <div className="px-4 md:px-6 mb-10 max-w-4xl mx-auto">
-        {selectedChannel && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <VideoPlayer
-              url={selectedChannel.url}
-              poster={selectedChannel.logo}
-              cookie={selectedChannel.cookie}
-              licenseUrl={selectedChannel.licenseUrl}
-              userAgent={selectedChannel.userAgent}
-            />
-
-            <div className="mt-6 px-1 space-y-2">
-              <h2 className="text-3xl font-black text-white line-clamp-2 tracking-tight leading-none">
-                {selectedChannel.name}
-              </h2>
-              <div className="flex items-center gap-2 text-sm text-primary font-black uppercase tracking-wider">
-                 <ShieldCheck className="w-4 h-4" strokeWidth={2.5} />
-                 <span>Access unlocked</span>
-                 <span className="text-muted-foreground font-bold">·</span>
-                 <span className="text-muted-foreground font-bold normal-case tracking-normal">expires 11:35 PM</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Channel Grid */}
-      <div className="px-4 md:px-6 max-w-4xl mx-auto">
-        <div className="flex items-center justify-between mb-6 px-1">
-          <h3 className="text-sm font-black text-white/40 uppercase tracking-widest">More Channels</h3>
-          <div className="relative">
-            <Search className="w-4 h-4 text-white/40 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <label className="relative min-w-0 flex-1">
+            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
-              type="text"
-              placeholder="Find cartoon..."
+              ref={searchRef}
+              type="search"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="bg-card/50 border border-white/5 text-white font-medium text-sm rounded-full pl-10 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 w-44 placeholder:text-white/30 transition-all focus:w-56 focus:bg-card"
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search channels..."
+              aria-label="Search channels"
+              data-testid="input-channel-search"
+              className="h-11 w-full rounded-2xl border border-white/[0.06] bg-[#141726] pl-10 pr-4 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-500/15"
             />
-          </div>
+          </label>
+
+          <button
+            type="button"
+            onClick={() => {
+              setPlayerOpen(true);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 text-white shadow-lg shadow-cyan-950/30 transition hover:brightness-110 active:scale-95"
+            aria-label={`Play ${activeChannel.name}`}
+            data-testid="button-play-live"
+          >
+            <Radio className="h-5 w-5" />
+          </button>
         </div>
 
-        {filteredChannels.length === 0 ? (
-          <div className="text-center py-16 bg-card/30 rounded-3xl border border-white/5 mx-1">
-            <Search className="w-10 h-10 text-white/20 mx-auto mb-4" />
-            <p className="text-muted-foreground font-bold text-lg">No channels found</p>
-            <p className="text-sm text-white/40 mt-1 font-medium">Try a different search term</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 px-1">
-            {filteredChannels.map((channel, idx) => {
-              const isSelected = selectedChannel?.url === channel.url;
-              return (
-                <button
-                  key={`${channel.url}-${idx}`}
-                  onClick={() => {
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                    setSelectedChannel(channel);
-                  }}
-                  className={`
-                    relative aspect-[4/3] rounded-3xl overflow-hidden flex flex-col items-center justify-center p-4 transition-all duration-300 active:scale-95 text-center group
-                    ${isSelected
-                      ? 'bg-primary text-primary-foreground shadow-[0_0_30px_rgba(214,243,47,0.25)] ring-4 ring-primary ring-offset-4 ring-offset-background z-10 scale-[1.02]'
-                      : 'bg-card hover:bg-card/80 border border-white/5 hover:border-white/10 hover:shadow-xl'
-                    }
-                  `}
-                >
-                  {channel.logo ? (
-                    <div className="w-16 h-16 flex items-center justify-center mb-3">
-                      <img
-                        src={channel.logo || undefined}
-                        alt={channel.name}
-                        referrerPolicy="no-referrer"
-                        loading="lazy"
-                        decoding="async"
-                        className="max-w-full max-h-full object-contain drop-shadow-md group-hover:scale-110 transition-transform duration-300"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <div className={`w-16 h-16 mb-3 rounded-full flex items-center justify-center transition-transform duration-300 group-hover:scale-110 ${isSelected ? 'bg-black/10' : 'bg-white/5'}`}>
-                      <Tv className={`w-8 h-8 ${isSelected ? 'text-black/50' : 'text-white/20'}`} />
-                    </div>
-                  )}
-                  <span className={`text-[13px] font-black line-clamp-2 w-full mt-auto leading-tight ${isSelected ? 'text-black' : 'text-white/80 group-hover:text-white'}`}>
-                    {channel.name}
-                  </span>
+        <nav
+          aria-label="Channel categories"
+          className="mx-auto flex max-w-6xl gap-6 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-8 sm:px-6"
+          id="channel-categories"
+        >
+          {categoryTabs.map((category) => {
+            const active = activeCategory === category.id;
+            return (
+              <button
+                type="button"
+                key={category.id}
+                onClick={() => {
+                  setActiveCategory(category.id);
+                  setActiveNav(category.id === 'kids' ? 'kids' : 'home');
+                }}
+                className={`relative shrink-0 pb-3 pt-1 text-sm font-semibold transition ${
+                  active ? 'text-violet-300' : 'text-slate-400 hover:text-white'
+                }`}
+                data-testid={`button-category-${category.id.replace(/[^a-z0-9]+/gi, '-')}`}
+                aria-pressed={active}
+              >
+                {category.label}
+                {active && <span className="absolute inset-x-0 bottom-0 h-[3px] rounded-full bg-violet-500" />}
+              </button>
+            );
+          })}
+        </nav>
+      </header>
 
-                  {isSelected && (
-                    <div className="absolute top-3 right-3 w-2.5 h-2.5 bg-black rounded-full animate-pulse shadow-sm" />
-                  )}
-                </button>
-              );
-            })}
+      <main className="mx-auto max-w-6xl px-4 pt-5 sm:px-6 sm:pt-7">
+        {playerOpen && activeChannel && (
+          <section className="mb-7" aria-label={`Now playing ${activeChannel.name}`} data-testid="section-live-player">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-rose-500" />
+                <h2 className="truncate text-sm font-bold text-white">Now Playing · {activeChannel.name}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPlayerOpen(false)}
+                className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-400 transition hover:bg-white/5 hover:text-white"
+                data-testid="button-close-player"
+              >
+                Close
+              </button>
+            </div>
+            <VideoPlayer
+              url={activeChannel.url}
+              poster={activeChannel.logo}
+              cookie={activeChannel.cookie}
+              licenseUrl={activeChannel.licenseUrl}
+              licenseKey={activeChannel.licenseKey}
+              userAgent={activeChannel.userAgent}
+              referrer={activeChannel.referrer}
+            />
+          </section>
+        )}
+
+        {activeChannel && (
+          <section
+            className="relative mb-8 overflow-hidden rounded-[26px] border border-white/[0.07] bg-gradient-to-br from-[#1a1b38] via-[#14162a] to-[#101725] p-5 shadow-[0_20px_60px_rgba(5,7,20,0.35)] sm:mb-10 sm:flex sm:items-center sm:gap-6 sm:p-6"
+            aria-label="Featured channel"
+            data-testid="section-featured-channel"
+          >
+            <div className="pointer-events-none absolute -right-10 -top-16 h-44 w-44 rounded-full bg-violet-500/15 blur-3xl" />
+            <ChannelLogo channel={activeChannel} className="relative mb-4 h-[72px] w-[72px] rounded-2xl ring-1 ring-white/10 sm:mb-0 sm:h-20 sm:w-20" />
+            <div className="relative min-w-0 flex-1">
+              <div className="mb-1.5 text-xs font-extrabold uppercase tracking-[0.18em] text-cyan-300">Featured</div>
+              <h1 className="line-clamp-1 text-xl font-black tracking-tight text-white sm:text-2xl" data-testid="text-featured-channel-name">
+                {activeChannel.name}
+              </h1>
+              <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-slate-400">
+                {activeChannel.group?.trim() || 'Live cartoon and entertainment channel'}
+                <span className="text-slate-600"> · </span>
+                {activeChannel.name.toLowerCase().includes('hd') ? 'HD' : 'Live TV'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openChannel(activeChannel)}
+              className="absolute right-5 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-violet-600 text-white shadow-[0_8px_25px_rgba(124,58,237,0.35)] transition hover:scale-105 hover:bg-violet-500 active:scale-95 sm:static sm:translate-y-0 sm:h-14 sm:w-14"
+              aria-label={`Play ${activeChannel.name}`}
+              data-testid="button-play-featured"
+            >
+              <CirclePlay className="h-6 w-6" fill="currentColor" strokeWidth={1.5} />
+            </button>
+          </section>
+        )}
+
+        {searchQuery.trim() && (
+          <div className="mb-6 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-lg font-extrabold">Search results</h2>
+              <p className="text-sm text-slate-500">{matchingChannels.length} channels found</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="shrink-0 rounded-lg px-3 py-2 text-xs font-semibold text-violet-300 hover:bg-white/5"
+              data-testid="button-clear-search"
+            >
+              Clear
+            </button>
           </div>
         )}
-      </div>
+
+        {!searchQuery.trim() && activeCategory === 'all' && (
+          <ChannelRail
+            title="Trending Now"
+            channels={matchingChannels.slice(0, 20)}
+            onSelect={openChannel}
+            countLabel={`${Math.min(20, matchingChannels.length)} channels`}
+            testId="trending"
+          />
+        )}
+
+        {sections.map(({ name, items }, index) => (
+          <ChannelRail
+            key={name}
+            title={activeCategory === 'kids' && !/kids?|cartoon|junior/i.test(name) ? `Kids · ${name}` : name}
+            channels={items.slice(0, 24)}
+            onSelect={openChannel}
+            countLabel={items.length > 24 ? `${items.length} channels` : undefined}
+            testId={`category-${index}`}
+            showHeaderAction
+          />
+        ))}
+
+        {matchingChannels.length === 0 && (
+          <div className="rounded-3xl border border-white/[0.06] bg-[#111422] px-5 py-14 text-center" data-testid="status-no-channels">
+            <Search className="mx-auto mb-3 h-8 w-8 text-slate-500" />
+            <h2 className="font-bold text-white">No channels found</h2>
+            <p className="mt-1 text-sm text-slate-500">Try another search or choose a different category.</p>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveCategory('all');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          className="mx-auto mt-2 flex items-center gap-1 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-slate-400 transition hover:border-violet-400/30 hover:text-white"
+          data-testid="button-back-to-all"
+        >
+          Browse all channels <ChevronRight className="h-3.5 w-3.5" />
+        </button>
+      </main>
+
+      <nav
+        aria-label="Main navigation"
+        className="fixed inset-x-0 bottom-0 z-50 border-t border-white/[0.07] bg-[#0d1020]/95 pb-[env(safe-area-inset-bottom)] pt-2 backdrop-blur-2xl"
+      >
+        <div className="mx-auto flex max-w-xl items-center justify-around px-6 pb-2">
+          <button
+            type="button"
+            onClick={() => handleBottomNav('home')}
+            className={`flex min-w-16 flex-col items-center gap-1 px-3 py-1.5 text-xs transition ${
+              activeNav === 'home' ? 'text-violet-300' : 'text-slate-500 hover:text-white'
+            }`}
+            data-testid="button-bottom-home"
+            aria-current={activeNav === 'home' ? 'page' : undefined}
+          >
+            <House className="h-5 w-5" />
+            <span>Home</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleBottomNav('search')}
+            className={`flex min-w-16 flex-col items-center gap-1 px-3 py-1.5 text-xs transition ${
+              activeNav === 'search' ? 'text-violet-300' : 'text-slate-500 hover:text-white'
+            }`}
+            data-testid="button-bottom-search"
+            aria-current={activeNav === 'search' ? 'page' : undefined}
+          >
+            <Search className="h-5 w-5" />
+            <span>Search</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleBottomNav('kids')}
+            className={`flex min-w-16 flex-col items-center gap-1 px-3 py-1.5 text-xs transition ${
+              activeNav === 'kids' ? 'text-violet-300' : 'text-slate-500 hover:text-white'
+            }`}
+            data-testid="button-bottom-kids"
+            aria-current={activeNav === 'kids' ? 'page' : undefined}
+          >
+            <Tv className="h-5 w-5" />
+            <span>Kids</span>
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }

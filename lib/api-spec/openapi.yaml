@@ -71,6 +71,24 @@ paths:
           description: URL of the stream to proxy
           schema:
             type: string
+        - name: cookie
+          in: query
+          required: false
+          description: Optional upstream cookie header
+          schema:
+            type: string
+        - name: ua
+          in: query
+          required: false
+          description: Optional upstream User-Agent
+          schema:
+            type: string
+        - name: ref
+          in: query
+          required: false
+          description: Optional upstream referrer
+          schema:
+            type: string
       responses:
         "200":
           description: Stream content (HLS manifest, TS segments, or other media)
@@ -109,6 +127,12 @@ paths:
           in: query
           required: true
           description: URL of the M3U playlist to parse
+          schema:
+            type: string
+        - name: playlist2
+          in: query
+          required: false
+          description: Optional second M3U playlist to merge
           schema:
             type: string
       responses:
@@ -166,6 +190,12 @@ components:
         userAgent:
           type: ["string", "null"]
           description: User-Agent to use when proxying the stream
+        referrer:
+          type: ["string", "null"]
+          description: Referrer to use when proxying the stream
+        licenseKey:
+          type: ["string", "null"]
+          description: Inline ClearKey KID:key pairs
     Error:
       type: object
       required: [error]

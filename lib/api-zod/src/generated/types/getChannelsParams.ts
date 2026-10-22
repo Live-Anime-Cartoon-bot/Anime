@@ -11,4 +11,8 @@ export type GetChannelsParams = {
  * URL of the M3U playlist to parse
  */
 playlist: string;
+/**
+ * Optional second M3U playlist to merge
+ */
+playlist2?: string;
 };

@@ -30,6 +30,10 @@ function isManifestContent(url: string, contentType: string | null): boolean {
   );
 }
 
+function isDashManifest(url: string, contentType: string | null): boolean {
+  return /dash\+xml/.test((contentType || "").toLowerCase()) || /\.mpd(?:$|[?#])/i.test(url);
+}
+
 function proxyUrl(target: string): string {
   return `/api/stream?url=${encodeURIComponent(target)}`;
 }
@@ -101,14 +105,18 @@ function parseM3u(content: string) {
     url: string;
     cookie: string | null;
     licenseUrl: string | null;
+    licenseKey: string | null;
     userAgent: string | null;
+    referrer: string | null;
   }[] = [];
 
   const lines = content.split(/\r?\n/);
   let pending: { name: string; logo: string | null; group: string | null } | null = null;
   let pendingCookie: string | null = null;
   let pendingLicenseUrl: string | null = null;
+  let pendingLicenseKey: string | null = null;
   let pendingUserAgent: string | null = null;
+  let pendingReferrer: string | null = null;
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -118,124 +126,48 @@ function parseM3u(content: string) {
       pending = parseExtinfLine(line);
       pendingCookie = null;
       pendingLicenseUrl = null;
+      pendingLicenseKey = null;
       pendingUserAgent = null;
+      pendingReferrer = null;
     } else if (line.startsWith("#EXTHTTP:")) {
       try {
         const json = JSON.parse(line.slice(9));
         if (json.cookie) pendingCookie = json.cookie;
       } catch { /* ignore */ }
     } else if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key=")) {
-      pendingLicenseUrl = line.split("=").slice(1).join("=");
+      const licenseValue = line.slice("#KODIPROP:inputstream.adaptive.license_key=".length);
+      if (/^https?:\/\//i.test(licenseValue)) pendingLicenseUrl = licenseValue;
+      else pendingLicenseKey = licenseValue;
     } else if (line.startsWith("#EXTVLCOPT:http-user-agent=")) {
       pendingUserAgent = line.split("=").slice(1).join("=");
+    } else if (line.startsWith("#EXTVLCOPT:http-referrer=")) {
+      pendingReferrer = line.slice("#EXTVLCOPT:http-referrer=".length);
+    } else if (line.startsWith("#KODIPROP:inputstream.adaptive.stream_headers=")) {
+      const headers = line.slice("#KODIPROP:inputstream.adaptive.stream_headers=".length);
+      const cookieMatch = headers.match(/(?:^|&)Cookie=([^&]+)/i);
+      const uaMatch = headers.match(/(?:^|&)User-Agent=([^&]+)/i);
+      if (cookieMatch && !pendingCookie) pendingCookie = cookieMatch[1];
+      if (uaMatch && !pendingUserAgent) pendingUserAgent = uaMatch[1];
     } else if (pending && !line.startsWith("#")) {
       channels.push({
         ...pending,
         url: line,
         cookie: pendingCookie,
         licenseUrl: pendingLicenseUrl,
+        licenseKey: pendingLicenseKey,
         userAgent: pendingUserAgent,
+        referrer: pendingReferrer,
       });
       pending = null;
       pendingCookie = null;
       pendingLicenseUrl = null;
+      pendingLicenseKey = null;
       pendingUserAgent = null;
+      pendingReferrer = null;
     }
   }
 
   return channels;
-}
-
-type ChannelCustomization = {
-  matchName: string;
-  name?: string;
-  logo?: string;
-  url?: string;
-  group?: string;
-  addIfMissing: boolean;
-};
-
-const CHANNEL_CUSTOMIZATIONS: ChannelCustomization[] = [
-  {
-    matchName: "POGO",
-    name: "POGO",
-    logo: "https://static.wikia.nocookie.net/robotwars/images/1/1f/PogoTV.png/revision/latest?cb=20210927185053",
-    url: "https://line.sweetv.xyz/play/live.php?mac=00:1A:79:00:03:B2&stream=156128&extension=m3u8&play_token=9sBGXoBcMI",
-    addIfMissing: true,
-  },
-  {
-    matchName: "CARTOON NETWORK",
-    name: "Cartoon Network - Tataplay",
-    logo: "https://yt3.googleusercontent.com/uG9EngVHBNOX4OfWFr17sojyqZo_BHy2tW0_zeXxJHkDrHtyoax2yljfog_55-b0LEPWa_ELPQ=s160-c-k-c0x00ffffff-no-rj",
-    url: "http://66.102.126.10:8000/play/a011/index.m3u8",
-    addIfMissing: true,
-  },
-  {
-    matchName: "DISNEY JUNIOR",
-    name: "Disney Junior - Tataplay",
-    logo: "https://upload.wikimedia.org/wikipedia/commons/3/36/2019_Disney_Junior_logo.svg",
-    url: "http://66.102.126.10:8000/play/a004/index.m3u8",
-    addIfMissing: true,
-  },
-  {
-    matchName: "NICK",
-    name: "Nick - Tataplay",
-    logo: "https://upload.wikimedia.org/wikipedia/commons/8/80/Nickelodeon_2009_logo.svg",
-    url: "http://66.102.126.10:8000/play/a00w/index.m3u8",
-    addIfMissing: true,
-  },
-  {
-    matchName: "NICK JR",
-    name: "Nick Jr. - Tataplay",
-    logo: "https://upload.wikimedia.org/wikipedia/commons/9/98/Nick_Jr._logo_2009.svg",
-    url: "http://66.102.126.10:8000/play/a00m/index.m3u8",
-    addIfMissing: true,
-  },
-  {
-    matchName: "DISNEY CHANNEL",
-    name: "Disney Channel HD - Tataplay",
-    logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/61/Disney_Channel_logo_2014.svg/1200px-Disney_Channel_logo_2014.svg.png",
-    url: "http://66.102.126.10:8000/play/a013/index.m3u8",
-    addIfMissing: true,
-  },
-  {
-    matchName: "MINIMAX",
-    name: "Minimax",
-    logo: "https://upload.wikimedia.org/wikipedia/en/e/e9/Minimax_%282021%29.webp",
-    url: "https://vodzong.mjunoon.tv:8087/streamtest/157-1M/chunks.m3u8",
-    addIfMissing: true,
-  },
-];
-
-function applyChannelCustomizations(
-  channels: { name: string; logo: string | null; group: string | null; url: string; cookie: string | null; licenseUrl: string | null; userAgent: string | null }[]
-) {
-  const result = [...channels];
-  for (const customization of CHANNEL_CUSTOMIZATIONS) {
-    const idx = result.findIndex((c) =>
-      c.name.toLowerCase().includes(customization.matchName.toLowerCase())
-    );
-    if (idx >= 0) {
-      result[idx] = {
-        ...result[idx],
-        ...(customization.name ? { name: customization.name } : {}),
-        ...(customization.logo ? { logo: customization.logo } : {}),
-        ...(customization.url ? { url: customization.url, cookie: null, licenseUrl: null, userAgent: null } : {}),
-        ...(customization.group ? { group: customization.group } : {}),
-      };
-    } else if (customization.addIfMissing && customization.name && customization.url) {
-      result.push({
-        name: customization.name,
-        logo: customization.logo || null,
-        group: customization.group || null,
-        url: customization.url,
-        cookie: null,
-        licenseUrl: null,
-        userAgent: null,
-      });
-    }
-  }
-  return result;
 }
 
 const UPSTREAM_HEADERS = {
@@ -244,6 +176,40 @@ const UPSTREAM_HEADERS = {
   Accept: "*/*",
   "Accept-Language": "en-US,en;q=0.9",
 };
+
+type ParsedChannel = ReturnType<typeof parseM3u>[number];
+let channelCache: { key: string; expiresAt: number; channels: ParsedChannel[] } | null = null;
+let channelFetchInFlight: { key: string; promise: Promise<ParsedChannel[]> } | null = null;
+
+async function fetchChannelSources(sourceUrls: string[]): Promise<ParsedChannel[]> {
+  const key = sourceUrls.join("|");
+  if (channelCache?.key === key && channelCache.expiresAt > Date.now()) {
+    return channelCache.channels;
+  }
+  if (channelFetchInFlight?.key === key) return channelFetchInFlight.promise;
+
+  const promise = Promise.all(sourceUrls.map(async (sourceUrl) => {
+    const upstream = await fetch(sourceUrl, { headers: UPSTREAM_HEADERS });
+    if (!upstream.ok) throw new Error(`Playlist returned ${upstream.status}`);
+    return parseM3u(await upstream.text());
+  })).then((lists) => {
+    const seen = new Set<string>();
+    const channels = lists.flat().filter((channel) => {
+      if (isKnownNonPlayableUrl(channel.url)) return false;
+      const dedupeKey = `${channel.name.trim().toLowerCase()}|${channel.url.trim()}`;
+      if (seen.has(dedupeKey)) return false;
+      seen.add(dedupeKey);
+      return true;
+    });
+    channelCache = { key, channels, expiresAt: Date.now() + 3 * 60 * 1000 };
+    return channels;
+  }).finally(() => {
+    if (channelFetchInFlight?.key === key) channelFetchInFlight = null;
+  });
+
+  channelFetchInFlight = { key, promise };
+  return promise;
+}
 
 router.get("/m3u", async (req: Request, res: Response): Promise<void> => {
   const parsed = GetM3uQueryParams.safeParse(req.query);
@@ -280,8 +246,9 @@ router.get("/stream", async (req: Request, res: Response): Promise<void> => {
   }
 
   const url = parsed.data.url;
-  const cookie = typeof req.query.cookie === 'string' ? req.query.cookie : undefined;
-  const ua = typeof req.query.ua === 'string' ? req.query.ua : undefined;
+  const cookie = parsed.data.cookie;
+  const ua = parsed.data.ua;
+  const referrer = parsed.data.ref;
 
   if (!isValidUrl(url)) {
     res.status(400).json({ error: "Invalid URL" });
@@ -291,7 +258,7 @@ router.get("/stream", async (req: Request, res: Response): Promise<void> => {
   try {
     const headers: Record<string, string> = {
       ...UPSTREAM_HEADERS,
-      Referer: new URL(url).origin,
+      Referer: referrer || new URL(url).origin,
     };
     if (cookie) headers["Cookie"] = cookie;
     if (ua) headers["User-Agent"] = ua;
@@ -304,6 +271,7 @@ router.get("/stream", async (req: Request, res: Response): Promise<void> => {
     const baseUrl = upstream.url;
     const contentType = upstream.headers.get("content-type");
     const isManifest = isManifestContent(baseUrl, contentType);
+    const isDash = isDashManifest(baseUrl, contentType);
 
     res.status(upstream.status);
     upstream.headers.forEach((value, key) => {
@@ -318,16 +286,23 @@ router.get("/stream", async (req: Request, res: Response): Promise<void> => {
           "last-modified",
         ].includes(lower)
       ) {
-        if (isManifest && lower === "content-length") return;
+        if ((isManifest || isDash) && lower === "content-length") return;
         res.setHeader(key, value);
       }
     });
 
     if (isManifest) {
       const text = await upstream.text();
-      // Rewrite manifest — preserve cookie/ua in proxied segment URLs
-      const rewritten = rewriteM3uManifestWithAuth(baseUrl, text, cookie, ua);
+      const rewritten = rewriteM3uManifestWithAuth(baseUrl, text, cookie, ua, referrer);
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+      res.send(rewritten);
+      return;
+    }
+
+    if (isDash) {
+      const text = await upstream.text();
+      const rewritten = rewriteDashManifest(baseUrl, text, cookie, ua, referrer);
+      res.setHeader("Content-Type", "application/dash+xml");
       res.send(rewritten);
       return;
     }
@@ -349,18 +324,82 @@ router.get("/stream", async (req: Request, res: Response): Promise<void> => {
   }
 });
 
-function proxyUrlWithAuth(target: string, cookie?: string | null, ua?: string | null): string {
+function proxyUrlWithAuth(
+  target: string,
+  cookie?: string | null,
+  ua?: string | null,
+  referrer?: string | null
+): string {
   let p = `/api/stream?url=${encodeURIComponent(target)}`;
   if (cookie) p += `&cookie=${encodeURIComponent(cookie)}`;
   if (ua) p += `&ua=${encodeURIComponent(ua)}`;
+  if (referrer) p += `&ref=${encodeURIComponent(referrer)}`;
   return p;
+}
+
+function proxyBaseUrl(
+  baseUrl: string,
+  cookie?: string | null,
+  ua?: string | null,
+  referrer?: string | null
+): string {
+  const payload = Buffer.from(JSON.stringify({ baseUrl, cookie, ua, referrer })).toString("base64url");
+  return `/api/stream-base/${payload}/`;
+}
+
+function xmlEscape(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+function rewriteDashManifest(
+  manifestUrl: string,
+  content: string,
+  cookie?: string | null,
+  ua?: string | null,
+  referrer?: string | null
+): string {
+  let hasBaseUrl = false;
+  let rewritten = content.replace(/<BaseURL([^>]*)>([\s\S]*?)<\/BaseURL>/gi, (_match, attrs: string, rawValue: string) => {
+    hasBaseUrl = true;
+    const value = rawValue.trim();
+    try {
+      const absolute = new URL(value || ".", manifestUrl).toString();
+      const isDirectory = value === "" || value.endsWith("/");
+      const directoryUrl = isDirectory && !absolute.endsWith("/") ? `${absolute}/` : absolute;
+      const proxied = isDirectory
+        ? proxyBaseUrl(directoryUrl, cookie, ua, referrer)
+        : proxyUrlWithAuth(absolute, cookie, ua, referrer);
+      return `<BaseURL${attrs}>${xmlEscape(proxied)}</BaseURL>`;
+    } catch {
+      return `<BaseURL${attrs}>${rawValue}</BaseURL>`;
+    }
+  });
+
+  // Absolute resource attributes are proxied directly. Relative segment templates
+  // inherit the proxied MPD base path and keep their DASH substitution tokens intact.
+  rewritten = rewritten.replace(/\b(media|initialization|sourceURL)="([^"]+)"/gi, (match, attr: string, value: string) => {
+    if (!/^(?:https?:)?\/\//i.test(value)) return match;
+    try {
+      return `${attr}="${xmlEscape(proxyUrlWithAuth(new URL(value, manifestUrl).toString(), cookie, ua, referrer))}"`;
+    } catch {
+      return match;
+    }
+  });
+
+  if (!hasBaseUrl) {
+    const base = new URL(".", manifestUrl).toString();
+    const proxiedBase = xmlEscape(proxyBaseUrl(base, cookie, ua, referrer));
+    rewritten = rewritten.replace(/(<MPD\b[^>]*>)/i, `$1<BaseURL>${proxiedBase}</BaseURL>`);
+  }
+  return rewritten;
 }
 
 function rewriteM3uManifestWithAuth(
   baseUrl: string,
   content: string,
   cookie?: string | null,
-  ua?: string | null
+  ua?: string | null,
+  referrer?: string | null
 ): string {
   return content
     .split(/\r?\n/)
@@ -372,7 +411,7 @@ function rewriteM3uManifestWithAuth(
         return line.replace(/URI="([^"]+)"/g, (match, uri: string) => {
           try {
             const absolute = new URL(uri, baseUrl).toString();
-            return `URI="${proxyUrlWithAuth(absolute, cookie, ua)}"`;
+            return `URI="${proxyUrlWithAuth(absolute, cookie, ua, referrer)}"`;
           } catch {
             return match;
           }
@@ -381,13 +420,59 @@ function rewriteM3uManifestWithAuth(
 
       try {
         const absolute = new URL(trimmed, baseUrl).toString();
-        return proxyUrlWithAuth(absolute, cookie, ua);
+        return proxyUrlWithAuth(absolute, cookie, ua, referrer);
       } catch {
         return line;
       }
     })
     .join("\n");
 }
+
+router.get(/^\/stream-base\/([^/]+)\/(.*)$/, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const encodedPayload = req.params["0"];
+    const resourcePath = req.params["1"];
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as {
+      baseUrl: string;
+      cookie?: string;
+      ua?: string;
+      referrer?: string;
+    };
+    if (!isValidUrl(payload.baseUrl)) {
+      res.status(400).json({ error: "Invalid stream base URL" });
+      return;
+    }
+
+    const target = new URL(resourcePath, payload.baseUrl).toString();
+    const headers: Record<string, string> = {
+      ...UPSTREAM_HEADERS,
+      Referer: payload.referrer || new URL(target).origin,
+    };
+    if (payload.cookie) headers.Cookie = payload.cookie;
+    if (payload.ua) headers["User-Agent"] = payload.ua;
+    const upstream = await fetch(target, { headers });
+    if (!upstream.ok) throw new Error(`Upstream returned ${upstream.status}`);
+    upstream.headers.forEach((value, key) => {
+      if (["content-type", "content-length", "cache-control", "accept-ranges"].includes(key.toLowerCase())) {
+        res.setHeader(key, value);
+      }
+    });
+    res.status(upstream.status);
+    if (!upstream.body) {
+      res.end();
+      return;
+    }
+    Readable.fromWeb(upstream.body as unknown as import("stream/web").ReadableStream)
+      .on("error", (err) => {
+        logger.error({ err, target }, "DASH segment proxy error");
+        if (!res.writableEnded) res.end();
+      })
+      .pipe(res);
+  } catch (err) {
+    logger.error({ err }, "Failed to proxy DASH resource");
+    res.status(502).json({ error: "Failed to proxy DASH resource" });
+  }
+});
 
 router.get("/channels", async (req: Request, res: Response): Promise<void> => {
   const parsed = GetChannelsQueryParams.safeParse(req.query);
@@ -397,24 +482,18 @@ router.get("/channels", async (req: Request, res: Response): Promise<void> => {
   }
 
   const playlist = parsed.data.playlist;
-  if (!isValidUrl(playlist)) {
+  const playlist2 = parsed.data.playlist2;
+  if (!isValidUrl(playlist) || (playlist2 && !isValidUrl(playlist2))) {
     res.status(400).json({ error: "Invalid playlist URL" });
     return;
   }
 
   try {
-    const upstream = await fetch(playlist, { headers: UPSTREAM_HEADERS });
-    if (!upstream.ok) {
-      throw new Error(`Upstream returned ${upstream.status}`);
-    }
-    const text = await upstream.text();
-    const rawChannels = parseM3u(text);
-    const channels = applyChannelCustomizations(rawChannels).filter(
-      (c) => !isKnownNonPlayableUrl(c.url)
-    );
+    const sourceUrls = [playlist, playlist2].filter((value): value is string => Boolean(value));
+    const channels = await fetchChannelSources(sourceUrls);
     res.json(GetChannelsResponse.parse(channels));
   } catch (err) {
-    logger.error({ err, playlist }, "Failed to parse channels");
+    logger.error({ err, playlist, playlist2 }, "Failed to parse channels");
     res.status(500).json({ error: "Failed to parse channels" });
   }
 });

@@ -34,8 +34,9 @@ export const GetM3uResponse = zod.string()
  */
 export const GetStreamQueryParams = zod.object({
   "url": zod.coerce.string().describe('URL of the stream to proxy'),
-  "cookie": zod.coerce.string().optional().describe('Cookie to forward when proxying'),
-  "ua": zod.coerce.string().optional().describe('User-Agent to use when proxying'),
+  "cookie": zod.coerce.string().optional().describe('Optional upstream cookie header'),
+  "ua": zod.coerce.string().optional().describe('Optional upstream User-Agent'),
+  "ref": zod.coerce.string().optional().describe('Optional upstream referrer')
 })
 
 export const GetStreamResponse = zod.unknown()
@@ -46,7 +47,8 @@ export const GetStreamResponse = zod.unknown()
  * @summary Parse an M3U playlist into a channel list
  */
 export const GetChannelsQueryParams = zod.object({
-  "playlist": zod.coerce.string().describe('URL of the M3U playlist to parse')
+  "playlist": zod.coerce.string().describe('URL of the M3U playlist to parse'),
+  "playlist2": zod.coerce.string().optional().describe('Optional second M3U playlist to merge')
 })
 
 export const GetChannelsResponseItem = zod.object({
@@ -54,8 +56,12 @@ export const GetChannelsResponseItem = zod.object({
   "url": zod.string().describe('Stream URL'),
   "logo": zod.string().nullish().describe('Channel logo URL'),
   "group": zod.string().nullish().describe('Channel group or category'),
-  "cookie": zod.string().nullish().describe('Cookie to forward when proxying'),
+  "cookie": zod.string().nullish().describe('Cookie header to forward when proxying the stream'),
   "licenseUrl": zod.string().nullish().describe('ClearKey DRM license URL'),
-  "userAgent": zod.string().nullish().describe('User-Agent to use when proxying'),
+  "userAgent": zod.string().nullish().describe('User-Agent to use when proxying the stream'),
+  "referrer": zod.string().nullish().describe('Referrer to use when proxying the stream'),
+  "licenseKey": zod.string().nullish().describe('Inline ClearKey KID:key pairs')
 })
 export const GetChannelsResponse = zod.array(GetChannelsResponseItem)
+
+

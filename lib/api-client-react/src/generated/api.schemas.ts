@@ -25,7 +25,7 @@ export interface Channel {
      */
   group?: string | null;
   /**
-     * Cookie to forward when proxying
+     * Cookie header to forward when proxying the stream
      * @nullable
      */
   cookie?: string | null;
@@ -35,10 +35,20 @@ export interface Channel {
      */
   licenseUrl?: string | null;
   /**
-     * User-Agent to use when proxying
+     * User-Agent to use when proxying the stream
      * @nullable
      */
   userAgent?: string | null;
+  /**
+     * Referrer to use when proxying the stream
+     * @nullable
+     */
+  referrer?: string | null;
+  /**
+     * Inline ClearKey KID:key pairs
+     * @nullable
+     */
+  licenseKey?: string | null;
 }
 
 export interface Error {
@@ -57,6 +67,18 @@ export type GetStreamParams = {
  * URL of the stream to proxy
  */
 url: string;
+/**
+ * Optional upstream cookie header
+ */
+cookie?: string;
+/**
+ * Optional upstream User-Agent
+ */
+ua?: string;
+/**
+ * Optional upstream referrer
+ */
+ref?: string;
 };
 
 export type GetChannelsParams = {
@@ -64,5 +86,9 @@ export type GetChannelsParams = {
  * URL of the M3U playlist to parse
  */
 playlist: string;
+/**
+ * Optional second M3U playlist to merge
+ */
+playlist2?: string;
 };
 

@@ -21,4 +21,29 @@ export interface Channel {
      * @nullable
      */
   group?: string | null;
+  /**
+     * Cookie header to forward when proxying the stream
+     * @nullable
+     */
+  cookie?: string | null;
+  /**
+     * ClearKey DRM license URL
+     * @nullable
+     */
+  licenseUrl?: string | null;
+  /**
+     * User-Agent to use when proxying the stream
+     * @nullable
+     */
+  userAgent?: string | null;
+  /**
+     * Referrer to use when proxying the stream
+     * @nullable
+     */
+  referrer?: string | null;
+  /**
+     * Inline ClearKey KID:key pairs
+     * @nullable
+     */
+  licenseKey?: string | null;
 }

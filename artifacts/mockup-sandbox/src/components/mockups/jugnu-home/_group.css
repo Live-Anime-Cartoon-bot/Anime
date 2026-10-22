@@ -1,0 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap');
+
+:root, .dark {
+  --button-outline: rgba(255, 255, 255, 0.1);
+  --badge-outline: rgba(255, 255, 255, 0.05);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255, 255, 255, 0.04);
+  --elevate-2: rgba(255, 255, 255, 0.09);
+
+  --background: 240 10% 4%;
+  --foreground: 0 0% 100%;
+  --card: 240 10% 8%;
+  --card-foreground: 0 0% 100%;
+  --card-border: 240 10% 12%;
+  --popover: 240 10% 4%;
+  --popover-foreground: 0 0% 100%;
+  --popover-border: 240 10% 12%;
+  --primary: 68 100% 50%;
+  --primary-foreground: 240 10% 4%;
+  --primary-border: 68 100% 40%;
+  --secondary: 240 10% 12%;
+  --secondary-foreground: 0 0% 100%;
+  --secondary-border: 240 10% 16%;
+  --muted: 240 10% 12%;
+  --muted-foreground: 240 5% 65%;
+  --muted-border: 240 10% 16%;
+  --accent: 68 100% 50%;
+  --accent-foreground: 240 10% 4%;
+  --accent-border: 68 100% 40%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --destructive-border: 0 84% 50%;
+  --input: 240 10% 16%;
+  --ring: 68 100% 50%;
+  --chart-1: 68 100% 50%;
+  --chart-2: 240 10% 60%;
+  --chart-3: 0 84% 60%;
+  --chart-4: 280 100% 60%;
+  --chart-5: 320 100% 60%;
+  --app-font-sans: 'Outfit', sans-serif;
+  --app-font-serif: Georgia, serif;
+  --app-font-mono: Menlo, monospace;
+  --radius: 1.25rem;
+}

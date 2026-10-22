@@ -9,141 +9,156 @@ if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
 }
 
 $url = $_GET["url"] ?? "";
-if (!$url || !filter_var($url, FILTER_VALIDATE_URL)) {
+$cookie = $_GET["cookie"] ?? "";
+$ua = $_GET["ua"] ?? "";
+$referrer = $_GET["ref"] ?? "";
+if (!$url || !isHttpUrl($url)) {
     http_response_code(400);
     echo json_encode(["error" => "Invalid URL"]);
     exit;
 }
 
+$headers = [];
+if ($cookie !== "") $headers[] = "Cookie: " . $cookie;
+if ($referrer !== "") $headers[] = "Referer: " . $referrer;
+if (!empty($_SERVER["HTTP_RANGE"])) $headers[] = "Range: " . $_SERVER["HTTP_RANGE"];
+
 $ch = curl_init($url);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, false);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-curl_setopt($ch, CURLOPT_HEADER, false);
-curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36");
-curl_setopt($ch, CURLOPT_REFERER, parse_url($url, PHP_URL_SCHEME) . "://" . parse_url($url, PHP_URL_HOST));
+curl_setopt($ch, CURLOPT_ENCODING, "");
+curl_setopt($ch, CURLOPT_USERAGENT, $ua ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36");
+curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+curl_setopt($ch, CURLOPT_REFERER, $referrer ?: (parse_url($url, PHP_URL_SCHEME) . "://" . parse_url($url, PHP_URL_HOST)));
 curl_setopt($ch, CURLOPT_TIMEOUT, 60);
-
-// Forward Range header so video seeking works for VOD segments
-if (!empty($_SERVER["HTTP_RANGE"])) {
-    curl_setopt($ch, CURLOPT_RANGE, substr($_SERVER["HTTP_RANGE"], 6));
-}
-
-$contentType = null;
-$effectiveUrl = null;
-$isManifest = null;
-$manifestBuffer = "";
-$started = false;
-$errored = false;
-
-// Capture Content-Type from response headers
-$headerFn = function ($ch, $header) use (&$contentType, &$started, &$errored) {
-    if (!$started) {
-        $started = true;
-        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        if ($status >= 400) {
-            $errored = true;
-        } else {
-            http_response_code($status);
-        }
-    }
-    if (stripos($header, "Content-Type:") === 0) {
-        $contentType = trim(substr($header, 13));
-    }
-    return strlen($header);
-};
-
-$writeFn = function ($ch, $data) use (&$effectiveUrl, &$contentType, &$isManifest, &$manifestBuffer, &$started, &$errored) {
-    if (!$started) {
-        $started = true;
-        $effectiveUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-        $isManifest = isManifestContent($effectiveUrl, $contentType);
-        if ($isManifest) {
-            header("Content-Type: application/vnd.apple.mpegurl");
-        } elseif ($contentType) {
-            header("Content-Type: $contentType");
-        }
-    }
-    if ($errored) {
-        return strlen($data);
-    }
-    if ($isManifest) {
-        $manifestBuffer .= $data;
-    } else {
-        echo $data;
-    }
-    return strlen($data);
-};
-
-curl_setopt($ch, CURLOPT_HEADERFUNCTION, $headerFn);
-curl_setopt($ch, CURLOPT_WRITEFUNCTION, $writeFn);
-
-$result = curl_exec($ch);
-
-if ($result === false) {
-    curl_close($ch);
-    http_response_code(502);
-    echo json_encode(["error" => "Failed to proxy stream: " . curl_error($ch)]);
-    exit;
-}
-
+$body = curl_exec($ch);
 $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+$effectiveUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL) ?: $url;
+$contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE) ?: "application/octet-stream";
+$error = curl_error($ch);
 curl_close($ch);
 
-if ($status >= 400) {
+if ($body === false || $status >= 400) {
     http_response_code(502);
-    echo json_encode(["error" => "Upstream returned $status"]);
+    header("Content-Type: application/json");
+    echo json_encode(["error" => "Upstream stream request failed", "status" => $status, "detail" => $error]);
     exit;
 }
 
-if ($isManifest) {
-    $rewritten = rewriteM3uManifest($effectiveUrl, $manifestBuffer);
-    echo $rewritten;
+$isHls = isHlsManifest($effectiveUrl, $contentType);
+$isDash = isDashManifest($effectiveUrl, $contentType);
+if ($isHls) {
+    header("Content-Type: application/vnd.apple.mpegurl");
+    echo rewriteHlsManifest($effectiveUrl, $body, $cookie, $ua, $referrer);
+    exit;
+}
+if ($isDash) {
+    header("Content-Type: application/dash+xml; charset=utf-8");
+    echo rewriteDashManifest($effectiveUrl, $body, $cookie, $ua, $referrer);
+    exit;
 }
 
-function isManifestContent($url, $contentType) {
-    $ct = strtolower($contentType ?: "");
-    if (preg_match('/mpegurl|m3u8|m3u/', $ct)) return true;
-    $lower = strtolower($url);
-    return str_ends_with($lower, ".m3u8") || str_ends_with($lower, ".m3u");
+http_response_code($status ?: 200);
+header("Content-Type: " . $contentType);
+header("Accept-Ranges: bytes");
+echo $body;
+
+function isHttpUrl($url) {
+    $scheme = strtolower(parse_url($url, PHP_URL_SCHEME) ?? "");
+    return ($scheme === "http" || $scheme === "https") && filter_var($url, FILTER_VALIDATE_URL);
 }
 
-function proxyUrl($target) {
-    return "/api/stream?url=" . urlencode($target);
+function isHlsManifest($url, $contentType) {
+    return preg_match('/mpegurl|m3u8|m3u/i', $contentType) || preg_match('/\.m3u8?(?:$|[?#])/i', $url);
 }
 
-function rewriteM3uManifest($baseUrl, $content) {
-    $lines = preg_split('/\r?\n/', $content);
+function isDashManifest($url, $contentType) {
+    return stripos($contentType, "dash+xml") !== false || preg_match('/\.mpd(?:$|[?#])/i', $url);
+}
+
+function proxyUrlWithAuth($target, $cookie, $ua, $referrer) {
+    $query = ["url" => $target];
+    if ($cookie !== "") $query["cookie"] = $cookie;
+    if ($ua !== "") $query["ua"] = $ua;
+    if ($referrer !== "") $query["ref"] = $referrer;
+    return "/api/stream?" . http_build_query($query, "", "&", PHP_QUERY_RFC3986);
+}
+
+function proxyBaseUrl($baseUrl, $cookie, $ua, $referrer) {
+    $payload = base64_encode(json_encode([
+        "baseUrl" => $baseUrl,
+        "cookie" => $cookie,
+        "ua" => $ua,
+        "referrer" => $referrer,
+    ]));
+    $payload = rtrim(strtr($payload, "+/", "-_"), "=");
+    return "/api/stream-base/" . $payload . "/";
+}
+
+function xmlEscape($value) {
+    return htmlspecialchars($value, ENT_QUOTES | ENT_XML1, "UTF-8");
+}
+
+function resolveUrl($relative, $base) {
+    if (preg_match('/^[a-z][a-z0-9+.-]*:/i', $relative)) return $relative;
+    $parts = parse_url($base);
+    if (!$parts || empty($parts["scheme"]) || empty($parts["host"])) return $relative;
+    $origin = $parts["scheme"] . "://" . $parts["host"] . (isset($parts["port"]) ? ":" . $parts["port"] : "");
+    if (strpos($relative, "//") === 0) return $parts["scheme"] . ":" . $relative;
+    if (strpos($relative, "/") === 0) return $origin . $relative;
+    $path = $parts["path"] ?? "/";
+    $directory = substr($path, 0, strrpos($path, "/") + 1);
+    $combined = $directory . $relative;
+    $segments = [];
+    foreach (explode("/", $combined) as $segment) {
+        if ($segment === "" || $segment === ".") continue;
+        if ($segment === "..") array_pop($segments);
+        else $segments[] = $segment;
+    }
+    return $origin . "/" . implode("/", $segments);
+}
+
+function rewriteHlsManifest($baseUrl, $content, $cookie, $ua, $referrer) {
     $out = [];
-    foreach ($lines as $line) {
+    foreach (preg_split('/\r?\n/', $content) as $line) {
         $trimmed = trim($line);
         if ($trimmed === "") {
             $out[] = $line;
-            continue;
-        }
-        if (strpos($trimmed, "#") === 0) {
-            $out[] = preg_replace_callback('/URI="([^"]+)"/', function ($m) use ($baseUrl) {
-                $absolute = rel2abs($m[1], $baseUrl);
-                return 'URI="' . proxyUrl($absolute) . '"';
+        } elseif (strpos($trimmed, "#") === 0) {
+            $out[] = preg_replace_callback('/URI="([^"]+)"/', function ($m) use ($baseUrl, $cookie, $ua, $referrer) {
+                return 'URI="' . proxyUrlWithAuth(resolveUrl($m[1], $baseUrl), $cookie, $ua, $referrer) . '"';
             }, $line);
-            continue;
+        } else {
+            $out[] = proxyUrlWithAuth(resolveUrl($trimmed, $baseUrl), $cookie, $ua, $referrer);
         }
-        $absolute = rel2abs($trimmed, $baseUrl);
-        $out[] = proxyUrl($absolute);
     }
     return implode("\n", $out);
 }
 
-function rel2abs($rel, $base) {
-    if (preg_match('/^[a-z][a-z0-9+.-]*:/i', $rel)) return $rel;
-    $baseParts = parse_url($base);
-    if (strpos($rel, "//") === 0) {
-        return $baseParts["scheme"] . ":" . $rel;
+function rewriteDashManifest($manifestUrl, $content, $cookie, $ua, $referrer) {
+    $hasBaseUrl = false;
+    $content = preg_replace_callback('/<BaseURL([^>]*)>([\s\S]*?)<\/BaseURL>/i', function ($m) use ($manifestUrl, $cookie, $ua, $referrer, &$hasBaseUrl) {
+        $hasBaseUrl = true;
+        $value = trim(strip_tags($m[2]));
+        $isDirectory = ($value === "" || substr($value, -1) === "/");
+        $absolute = resolveUrl($value === "" ? "." : $value, $manifestUrl);
+        if ($isDirectory && substr($absolute, -1) !== "/") $absolute .= "/";
+        $proxied = $isDirectory
+            ? proxyBaseUrl($absolute, $cookie, $ua, $referrer)
+            : proxyUrlWithAuth($absolute, $cookie, $ua, $referrer);
+        return "<BaseURL" . $m[1] . ">" . xmlEscape($proxied) . "</BaseURL>";
+    }, $content);
+
+    $content = preg_replace_callback('/\b(media|initialization|sourceURL)="([^"]+)"/i', function ($m) use ($manifestUrl, $cookie, $ua, $referrer) {
+        if (!preg_match('/^(?:https?:)?\/\//i', $m[2])) return $m[0];
+        return $m[1] . '="' . xmlEscape(proxyUrlWithAuth(resolveUrl($m[2], $manifestUrl), $cookie, $ua, $referrer)) . '"';
+    }, $content);
+
+    if (!$hasBaseUrl) {
+        $base = resolveUrl(".", $manifestUrl);
+        if (substr($base, -1) !== "/") $base .= "/";
+        $proxiedBase = xmlEscape(proxyBaseUrl($base, $cookie, $ua, $referrer));
+        $content = preg_replace('/(<MPD\b[^>]*>)/i', '$1<BaseURL>' . $proxiedBase . '</BaseURL>', $content, 1);
     }
-    $basePath = isset($baseParts["path"]) ? $baseParts["path"] : "/";
-    $baseDir = dirname($basePath);
-    if (strpos($rel, "/") === 0) {
-        return $baseParts["scheme"] . "://" . $baseParts["host"] . (isset($baseParts["port"]) ? ":" . $baseParts["port"] : "") . $rel;
-    }
-    if ($baseDir === "/") $baseDir = "";
-    return $baseParts["scheme"] . "://" . $baseParts["host"] . (isset($baseParts["port"]) ? ":" . $baseParts["port"] : "") . $baseDir . "/" . $rel;
+    return $content;
 }

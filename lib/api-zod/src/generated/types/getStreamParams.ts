@@ -11,4 +11,16 @@ export type GetStreamParams = {
  * URL of the stream to proxy
  */
 url: string;
+/**
+ * Optional upstream cookie header
+ */
+cookie?: string;
+/**
+ * Optional upstream User-Agent
+ */
+ua?: string;
+/**
+ * Optional upstream referrer
+ */
+ref?: string;
 };

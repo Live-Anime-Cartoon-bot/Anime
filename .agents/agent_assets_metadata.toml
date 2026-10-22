@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "EOCQ-96FXHfdRYBU5m4RM"
+uri = "file://generated-artifacts/infinityfree-jugnu-tv.zip"
+type = "unspecified"
+title = "JUGNU TV — Combined Playlists"
+description = "InfinityFree upload bundle with both playlists merged, plus HLS and DASH proxy endpoints."
+logical_id = "970087f2-2a05-4783-8396-e22ebd3aaabf"
+content_hash = "sha256:f07066edb1061117c6884853663b570801354fede5430b0ff94683467a435b0d"
+size = 567920
+mtime_ms = 1792640770683
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:3b3d2b4f-562d-46d4-b80a-a213fd993a11/970087f2-2a05-4783-8396-e22ebd3aaabf/46572e3c-57f4-44b5-a7ac-4bc640087381"
+storage_version_token = "1792640827234398"
+content_type = "application/octet-stream"

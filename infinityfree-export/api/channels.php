@@ -1,5 +1,5 @@
 <?php
-header("Content-Type: application/json");
+header("Content-Type: application/json; charset=utf-8");
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, OPTIONS");
 header("Access-Control-Allow-Headers: *");
@@ -9,73 +9,97 @@ if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
     exit;
 }
 
-$playlist = $_GET["playlist"] ?? "https://raw.githubusercontent.com/Sflex0719/m3u/refs/heads/main/Zio.m3u";
-if (!$playlist || !filter_var($playlist, FILTER_VALIDATE_URL)) {
-    http_response_code(400);
-    echo json_encode(["error" => "Invalid playlist URL"]);
-    exit;
+$playlist1 = $_GET["playlist"] ?? "https://plugxvipplaylist.lovable.app/api/playlist";
+$playlist2 = $_GET["playlist2"] ?? "https://raw.githubusercontent.com/Live-Anime-Cartoon-bot/CompressBot/refs/heads/main/m3u";
+$urls = [$playlist1, $playlist2];
+$channels = [];
+$seen = [];
+
+foreach ($urls as $playlist) {
+    if (!$playlist || !filter_var($playlist, FILTER_VALIDATE_URL)) {
+        http_response_code(400);
+        echo json_encode(["error" => "Invalid playlist URL"]);
+        exit;
+    }
+
+    $ch = curl_init($playlist);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_ENCODING, "");
+    curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36");
+    curl_setopt($ch, CURLOPT_TIMEOUT, 45);
+    $text = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $error = curl_error($ch);
+    curl_close($ch);
+
+    if ($text === false || $status < 200 || $status >= 300 || trim($text) === "") {
+        http_response_code(502);
+        echo json_encode(["error" => "Failed to fetch a channel playlist", "status" => $status, "detail" => $error]);
+        exit;
+    }
+
+    foreach (parseM3u($text) as $channel) {
+        if (isNonPlayable($channel["url"])) continue;
+        $key = strtolower(trim($channel["name"])) . "|" . trim($channel["url"]);
+        if (isset($seen[$key])) continue;
+        $seen[$key] = true;
+        $channels[] = $channel;
+    }
 }
 
-$ch = curl_init($playlist);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36");
-curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-$text = curl_exec($ch);
-if ($text === false || $text === null || trim($text) === "") {
-    http_response_code(502);
-    echo json_encode(["error" => "Failed to fetch playlist"]);
-    exit;
-}
-curl_close($ch);
-
-$rawChannels = parseM3u($text);
-$channels = applyCustomizations($rawChannels);
-$channels = array_values(array_filter($channels, function ($c) {
-    return !isKnownNonPlayableUrl($c["url"]);
-}));
-
-echo json_encode($channels);
-
-// ────────────────────────────────────────────────
-// Helper functions
-// ────────────────────────────────────────────────
+echo json_encode($channels, JSON_INVALID_UTF8_SUBSTITUTE);
 
 function parseM3u($content) {
     $channels = [];
-    $lines = preg_split('/\r?\n/', $content);
     $pending = null;
-    $pendingCookie = null;
-    $pendingLicenseUrl = null;
-    $pendingUserAgent = null;
+    $cookie = null;
+    $licenseUrl = null;
+    $licenseKey = null;
+    $userAgent = null;
+    $referrer = null;
 
-    foreach ($lines as $rawLine) {
+    foreach (preg_split('/\r?\n/', $content) as $rawLine) {
         $line = trim($rawLine);
         if ($line === "") continue;
 
         if (strpos($line, "#EXTINF") === 0) {
             $pending = parseExtinfLine($line);
-            $pendingCookie = null;
-            $pendingLicenseUrl = null;
-            $pendingUserAgent = null;
+            $cookie = null;
+            $licenseUrl = null;
+            $licenseKey = null;
+            $userAgent = null;
+            $referrer = null;
         } elseif (strpos($line, "#EXTHTTP:") === 0) {
             $json = json_decode(substr($line, 9), true);
-            if ($json && isset($json["cookie"])) $pendingCookie = $json["cookie"];
+            if (is_array($json) && !empty($json["cookie"])) $cookie = $json["cookie"];
         } elseif (strpos($line, "#KODIPROP:inputstream.adaptive.license_key=") === 0) {
-            $pendingLicenseUrl = substr($line, strlen("#KODIPROP:inputstream.adaptive.license_key="));
+            $value = substr($line, strlen("#KODIPROP:inputstream.adaptive.license_key="));
+            if (preg_match('/^https?:\/\//i', $value)) $licenseUrl = $value;
+            else $licenseKey = $value;
         } elseif (strpos($line, "#EXTVLCOPT:http-user-agent=") === 0) {
-            $pendingUserAgent = substr($line, strlen("#EXTVLCOPT:http-user-agent="));
+            $userAgent = substr($line, strlen("#EXTVLCOPT:http-user-agent="));
+        } elseif (strpos($line, "#EXTVLCOPT:http-referrer=") === 0) {
+            $referrer = substr($line, strlen("#EXTVLCOPT:http-referrer="));
+        } elseif (strpos($line, "#KODIPROP:inputstream.adaptive.stream_headers=") === 0) {
+            $headers = substr($line, strlen("#KODIPROP:inputstream.adaptive.stream_headers="));
+            if (!$cookie && preg_match('/(?:^|&)Cookie=([^&]+)/i', $headers, $m)) $cookie = $m[1];
+            if (!$userAgent && preg_match('/(?:^|&)User-Agent=([^&]+)/i', $headers, $m)) $userAgent = $m[1];
         } elseif ($pending && strpos($line, "#") !== 0) {
             $channels[] = array_merge($pending, [
                 "url" => $line,
-                "cookie" => $pendingCookie,
-                "licenseUrl" => $pendingLicenseUrl,
-                "userAgent" => $pendingUserAgent,
+                "cookie" => $cookie,
+                "licenseUrl" => $licenseUrl,
+                "licenseKey" => $licenseKey,
+                "userAgent" => $userAgent,
+                "referrer" => $referrer,
             ]);
             $pending = null;
-            $pendingCookie = null;
-            $pendingLicenseUrl = null;
-            $pendingUserAgent = null;
+            $cookie = null;
+            $licenseUrl = null;
+            $licenseKey = null;
+            $userAgent = null;
+            $referrer = null;
         }
     }
     return $channels;
@@ -99,92 +123,7 @@ function parseExtinfLine($line) {
     ];
 }
 
-function isKnownNonPlayableUrl($url) {
-    $lower = strtolower($url);
-    return str_ends_with($lower, ".mp4") || str_ends_with($lower, ".mkv");
-}
-
-function applyCustomizations($channels) {
-    $customizations = [
-        [
-            "matchName" => "Pogo",
-            "name" => "POGO",
-            "logo" => "https://static.wikia.nocookie.net/robotwars/images/1/1f/PogoTV.png/revision/latest?cb=20210927185053",
-            "url" => "https://line.sweetv.xyz/play/live.php?mac=00:1A:79:00:03:B2&stream=156128&extension=m3u8&play_token=9sBGXoBcMI",
-            "addIfMissing" => false,
-        ],
-        [
-            "matchName" => "Cartoon Network",
-            "name" => "Cartoon Network - Tataplay",
-            "logo" => "https://yt3.googleusercontent.com/uG9EngVHBNOX4OfWFr17sojyqZo_BHy2tW0_zeXxJHkDrHtyoax2yljfog_55-b0LEPWa_ELPQ=s160-c-k-c0x00ffffff-no-rj",
-            "url" => "http://66.102.126.10:8000/play/a011/index.m3u8",
-            "addIfMissing" => false,
-        ],
-        [
-            "matchName" => "Disney Junior",
-            "name" => "Disney Junior - Tataplay",
-            "logo" => "https://upload.wikimedia.org/wikipedia/commons/3/36/2019_Disney_Junior_logo.svg",
-            "url" => "http://66.102.126.10:8000/play/a004/index.m3u8",
-            "addIfMissing" => false,
-        ],
-        [
-            "matchName" => "Nick",
-            "name" => "Nick - Tataplay",
-            "logo" => "https://upload.wikimedia.org/wikipedia/commons/8/80/Nickelodeon_2009_logo.svg",
-            "url" => "http://66.102.126.10:8000/play/a00w/index.m3u8",
-            "addIfMissing" => false,
-        ],
-        [
-            "matchName" => "Nick Jr",
-            "name" => "Nick Jr. - Tataplay",
-            "logo" => "https://upload.wikimedia.org/wikipedia/commons/9/98/Nick_Jr._logo_2009.svg",
-            "url" => "http://66.102.126.10:8000/play/a00m/index.m3u8",
-            "addIfMissing" => false,
-        ],
-        [
-            "matchName" => "Disney",
-            "name" => "Disney Channel HD - Tataplay",
-            "logo" => "https://upload.wikimedia.org/wikipedia/commons/thumb/6/61/Disney_Channel_logo_2014.svg/1200px-Disney_Channel_logo_2014.svg.png",
-            "url" => "http://66.102.126.10:8000/play/a013/index.m3u8",
-            "addIfMissing" => false,
-        ],
-        [
-            "matchName" => "Minimax",
-            "name" => "Minimax",
-            "logo" => "https://upload.wikimedia.org/wikipedia/en/e/e9/Minimax_%282021%29.webp",
-            "url" => "https://vodzong.mjunoon.tv:8087/streamtest/157-1M/chunks.m3u8",
-            "addIfMissing" => true,
-        ],
-    ];
-    foreach ($customizations as $c) {
-        $idx = -1;
-        foreach ($channels as $i => $ch) {
-            if (stripos($ch["name"], $c["matchName"]) !== false) {
-                $idx = $i;
-                break;
-            }
-        }
-        if ($idx >= 0) {
-            if (!empty($c["name"])) $channels[$idx]["name"] = $c["name"];
-            if (!empty($c["logo"])) $channels[$idx]["logo"] = $c["logo"];
-            if (!empty($c["url"])) {
-                $channels[$idx]["url"] = $c["url"];
-                $channels[$idx]["cookie"] = null;
-                $channels[$idx]["licenseUrl"] = null;
-                $channels[$idx]["userAgent"] = null;
-            }
-            if (!empty($c["group"])) $channels[$idx]["group"] = $c["group"];
-        } elseif (!empty($c["addIfMissing"]) && !empty($c["name"]) && !empty($c["url"])) {
-            $channels[] = [
-                "name" => $c["name"],
-                "logo" => $c["logo"] ?? null,
-                "group" => $c["group"] ?? null,
-                "url" => $c["url"],
-                "cookie" => null,
-                "licenseUrl" => null,
-                "userAgent" => null,
-            ];
-        }
-    }
-    return $channels;
+function isNonPlayable($url) {
+    $path = strtolower(parse_url($url, PHP_URL_PATH) ?? "");
+    return str_ends_with($path, ".mp4") || str_ends_with($path, ".mkv");
 }

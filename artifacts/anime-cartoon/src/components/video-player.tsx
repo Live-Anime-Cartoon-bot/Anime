@@ -6,18 +6,20 @@ interface VideoPlayerProps {
   url: string;
   cookie?: string | null;
   licenseUrl?: string | null;
+  licenseKey?: string | null;
   userAgent?: string | null;
+  referrer?: string | null;
   poster?: string | null;
   autoPlay?: boolean;
 }
 
-const JIO_UA = "JioTV.Plus/2.8.4_2076/StreamFlex(StreamFlex;JioSTB) JioTvPlus-AndroidTv";
-
-export function VideoPlayer({ url, cookie, licenseUrl, userAgent, poster, autoPlay = true }: VideoPlayerProps) {
+export function VideoPlayer({ url, cookie, licenseUrl, licenseKey, userAgent, referrer, poster, autoPlay = true }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const shakaRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const shakaVariantsRef = useRef<any[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +28,7 @@ export function VideoPlayer({ url, cookie, licenseUrl, userAgent, poster, autoPl
   const [currentLevel, setCurrentLevel] = useState<number>(-1);
   const [currentAudioTrack, setCurrentAudioTrack] = useState<number>(-1);
 
-  const isDash = url.toLowerCase().endsWith('.mpd');
+  const isDash = /\.mpd(?:$|[?#])/i.test(url);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -49,7 +51,7 @@ export function VideoPlayer({ url, cookie, licenseUrl, userAgent, poster, autoPl
       loadShaka(video);
     } else {
       // Use hls.js for HLS streams
-      const streamUrl = buildProxyUrl(url, cookie, userAgent);
+      const streamUrl = buildProxyUrl(url, cookie, userAgent, referrer);
       loadHls(video, streamUrl);
     }
 
@@ -73,12 +75,13 @@ export function VideoPlayer({ url, cookie, licenseUrl, userAgent, poster, autoPl
       video.src = '';
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, cookie, licenseUrl, userAgent, autoPlay]);
+  }, [url, cookie, licenseUrl, licenseKey, userAgent, referrer, autoPlay]);
 
-  function buildProxyUrl(streamUrl: string, c?: string | null, ua?: string | null): string {
+  function buildProxyUrl(streamUrl: string, c?: string | null, ua?: string | null, ref?: string | null): string {
     let p = `/api/stream?url=${encodeURIComponent(streamUrl)}`;
     if (c) p += `&cookie=${encodeURIComponent(c)}`;
     if (ua) p += `&ua=${encodeURIComponent(ua)}`;
+    if (ref) p += `&ref=${encodeURIComponent(ref)}`;
     return p;
   }
 
@@ -142,8 +145,15 @@ export function VideoPlayer({ url, cookie, licenseUrl, userAgent, poster, autoPl
       await player.attach(video);
       shakaRef.current = player;
 
-      // Configure DRM if license URL is provided
-      if (licenseUrl) {
+      // ClearKey playlists may provide inline KID:key pairs or a license endpoint.
+      const clearKeys: Record<string, string> = {};
+      for (const pair of (licenseKey || '').split(',')) {
+        const [kid, key] = pair.split(':');
+        if (kid && key) clearKeys[kid.trim().toLowerCase()] = key.trim().toLowerCase();
+      }
+      if (Object.keys(clearKeys).length) {
+        player.configure({ drm: { clearKeys } });
+      } else if (licenseUrl) {
         player.configure({
           drm: {
             servers: { 'org.w3.clearkey': licenseUrl },
@@ -151,26 +161,27 @@ export function VideoPlayer({ url, cookie, licenseUrl, userAgent, poster, autoPl
         });
       }
 
-      // Forward cookie and user-agent via network filter
-      const effectiveUA = userAgent || JIO_UA;
-      player.getNetworkingEngine().registerRequestFilter((_type: number, request: { headers: Record<string, string>; allowCrossSiteCredentials: boolean }) => {
-        request.headers['User-Agent'] = effectiveUA;
-        if (cookie) request.headers['Cookie'] = cookie;
-        // Allow credentials for CDN cookie
-        request.allowCrossSiteCredentials = true;
-      });
-
       player.addEventListener('error', (event: { detail: { code: number; message: string } }) => {
         logger_err(`Shaka error: ${event.detail?.code} ${event.detail?.message}`);
         setError("Unable to play this channel");
         setIsLoading(false);
       });
 
-      await player.load(url);
+      // Requests go through our same-origin proxy; upstream auth is carried there.
+      await player.load(buildProxyUrl(url, cookie, userAgent, referrer));
       setIsLoading(false);
 
-      // Audio tracks
+      // Quality and audio choices from the DASH variants.
       const tracks = player.getVariantTracks();
+      shakaVariantsRef.current = tracks;
+      const qualityTracks = tracks.filter((track: { height?: number; bandwidth?: number }) => track.height || track.bandwidth);
+      const qualityOptions = new Map<string, { index: number; label: string }>();
+      qualityTracks.forEach((track: { id: number; height?: number; bandwidth?: number }) => {
+        const label = track.height ? `${track.height}p` : `${Math.round((track.bandwidth || 0) / 1000)}k`;
+        if (!qualityOptions.has(label)) qualityOptions.set(label, { index: track.id, label });
+      });
+      setLevels([...qualityOptions.values()]);
+      setCurrentLevel(-1);
       const langs = [...new Set(tracks.map((t: { language: string }) => t.language).filter(Boolean))];
       if (langs.length > 1) {
         setAudioTracks(langs.map((lang, id) => ({ id, label: String(lang) })));
@@ -212,7 +223,21 @@ export function VideoPlayer({ url, cookie, licenseUrl, userAgent, poster, autoPl
             <div className="relative">
               <select
                 value={currentLevel}
-                onChange={(e) => { if (hlsRef.current) hlsRef.current.currentLevel = Number(e.target.value); }}
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  if (hlsRef.current) hlsRef.current.currentLevel = value;
+                  else if (shakaRef.current) {
+                    if (value === -1) shakaRef.current.configure({ abr: { enabled: true } });
+                    else {
+                      const selected = shakaVariantsRef.current.find((track) => track.id === value);
+                      if (selected) {
+                        shakaRef.current.configure({ abr: { enabled: false } });
+                        shakaRef.current.selectVariantTrack(selected, true);
+                      }
+                    }
+                  }
+                  setCurrentLevel(value);
+                }}
                 className="appearance-none bg-black/70 hover:bg-black/90 text-white text-xs font-bold px-3 py-1.5 pr-8 rounded-xl border border-white/20 backdrop-blur-md focus:outline-none cursor-pointer"
               >
                 <option value={-1}>Auto</option>
